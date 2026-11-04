@@ -16,7 +16,16 @@
 @     of IMP-01, then an 8-sample mean, then the 16-sample window, all from samples v2.05 also takes as settled.
 @ MDC_DCV_STEP = 8192 codes: every DCV range spans 50000 counts with about 83.9 codes per count (the AD1 full scale of
 @ the row; emulator, synthetic calibration: 83.89 in ranges 0, 1 and 2), so the threshold is about 98 counts, far above
-@ the sample noise and far below the steps it is meant for.  A configuration change (fn_0800B974) empties the window.
+@ the sample noise of a clean source and far below the steps it is meant for.  A configuration change (fn_0800B974)
+@ empties the window.
+@ Custom build CF-05: the step threshold follows the noise of the input: max(MDC_DCV_STEP, 6 x mdc_dcv_mad), where
+@ mdc_dcv_mad is the running mean absolute deviation of the samples taken into the window (from the reference mean of
+@ the test, exponential average 1/8; about 0.8 sigma for Gaussian noise, so 6 x mad is about 4.8 sigma).  With the fixed
+@ threshold a noisy source (aliased ripple, about 0.8 x 98 counts sigma or more) restarted the window on noise pairs, so
+@ most published values were 4-sample means: in the emulator at 60 / 120 counts sigma per sample the display showed
+@ 1.7 / 2.2 times v2.05's standard deviation.  A clean source keeps mad far below the fixed threshold, so the step
+@ response above is unchanged there; a step smaller than about 4.8 sigma of the noise is averaged as in v2.05.  The
+@ configuration change resets mad to 0.
 @ Calibration mode keeps v2.05's blocks of 16 (the captures of CAL average the published means).
 @
 @ Not present in the strict image (LOOP_V205 = 1): this file assembles to nothing there.
@@ -44,6 +53,7 @@
     .balign 4
 mdc_dcv_prev_sum:   .space 4                @ sum of the previous half block
 mdc_dcv_pend:       .space 4                @ a deviating sample waiting for its confirmation
+mdc_dcv_mad:        .space 4                @ CF-05: mean absolute deviation of the window samples, AD1 codes x 16
 mdc_dcv_prev_n:     .space 1                @ samples of the previous half block, 0 = none (window just restarted)
 mdc_dcv_dev:        .space 1                @ 1 = mdc_dcv_pend holds a deviating sample
 
@@ -61,7 +71,13 @@ FUNC mdc_dcv_accumulate
     mov r4, r0                              @ r4 = sample
     ldr r5, =mdc_count
     ldr r6, =mdc_sum
-    movw r12, #MDC_DCV_STEP
+    ldr r12, =mdc_dcv_mad                   @ CF-05: threshold = max(MDC_DCV_STEP, 6 x mad)
+    ldr r12, [r12]
+    add r12, r12, r12, lsl #1
+    lsr r12, r12, #3                        @ mad x 16 x 3 / 8 = 6 x mad (codes; mad <= 2^28: no overflow)
+    cmp r12, #MDC_DCV_STEP
+    it lo
+    movlo r12, #MDC_DCV_STEP
     ldrb r1, [r5]
     cbz r1, .Ldcv_first                     @ empty half block: compare with the previous one
     ldr r2, [r6]
@@ -109,12 +125,19 @@ FUNC mdc_dcv_accumulate
 .Ldcv_first:
     ldr r3, =mdc_dcv_prev_n
     ldrb r1, [r3]
-    cbz r1, .Ldcv_nodev
+    cbz r1, .Ldcv_take                      @ no reference: taken without a test (and without a noise update)
     ldr r2, =mdc_dcv_prev_sum
     ldr r2, [r2]
     sdiv r2, r2, r1
     b .Ldcv_test
 .Ldcv_nodev:
+    @ CF-05: r3 = |sample - reference mean| (within the threshold): the noise estimate follows it, mad += (16 r3 - mad) / 8
+    ldr r0, =mdc_dcv_mad
+    ldr r1, [r0]
+    rsb r2, r1, r3, lsl #4
+    add r1, r1, r2, asr #3
+    str r1, [r0]
+.Ldcv_take:
     movs r0, #0
     ldr r7, =mdc_dcv_dev
     strb r0, [r7]                           @ a pending deviating sample was a spike: forgotten
@@ -185,6 +208,8 @@ ENDFUNC mdc_dcv_accumulate
 @ -----------------------------------------------------------------------------
 FUNC mdc_dcv_reset
     movs r0, #0
+    ldr r1, =mdc_dcv_mad
+    str r0, [r1]                            @ CF-05: a new configuration starts with the fixed threshold
     ldr r1, =mdc_dcv_prev_n
     strb r0, [r1]
     ldr r1, =mdc_dcv_dev
