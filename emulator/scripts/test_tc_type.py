@@ -5,7 +5,7 @@
 Drives the emulated meter in TEMP (dial mV/Temp, EEPROM 0x09 = 5, unit degC) with a thermocouple probe of type K, J or T
 (stimulus field 'probe', NIST ITS-90 EMF for J and T) at a board temperature of 25 degC, and checks for each type of the
 SETUP page tc the displayed temperature at points across its span, the over-range limits (J 936 degC, T 400 degC), the
-page navigation (bt -> tc in TEMP -> item 0), the page texts, that only EEPROM byte 0x00F is written and only by the
+page navigation (bt -> rEL -> tc in TEMP -> dSP), the page texts, that only EEPROM byte 0x00F is written and only by the
 save, the type after a power cycle, the fallback of invalid bytes and the undo of an unsaved edit by the edit timeout.
 The helpers are those of test_backlight_timer.py.
 """
@@ -72,10 +72,12 @@ def run_tests(image, a_type, a_result):
     T.check('TEMP, type K', T.rd(e, 0x2000803C) == 5 and T.rd(e, a_type) == 0)
     points(e, 'K', a_result, (-150.0, 0.0, 100.0, 500.0, 1000.0))
     to_item(e, 21)
-    T.press(e, 'SETUP', gap=0.5)
+    T.press(e, 'SETUP', gap=0.5)                      # bt -> rEL (item 22, USER_GUIDE.md page order)
+    T.check('SETUP short on bt shows rEL (item 22)', T.rd(e, ADDR_ITEM) == 22, 'item=%d' % T.rd(e, ADDR_ITEM))
+    T.press(e, 'SETUP', gap=0.5)                      # rEL -> tc (TEMP only)
     e.advance(0.6)
     texts = T.sample_texts(e)
-    T.check('SETUP short on bt in TEMP shows tc: "tc-K " (decoded Tc-K)', T.rd(e, ADDR_ITEM) == 23 and 'Tc-K ' in texts,
+    T.check('SETUP short on rEL in TEMP shows tc: "tc-K " (decoded Tc-K)', T.rd(e, ADDR_ITEM) == 23 and 'Tc-K ' in texts,
             'samples=%r' % (texts,))
     before = bytes(e.m.eeprom)
 
@@ -107,7 +109,8 @@ def run_tests(image, a_type, a_result):
     T.press(e, 'PEAK', gap=0.5)
     T.check('PEAK from K gives T', T.rd(e, a_type) == 2)
     T.press(e, 'SETUP', gap=0.5)
-    T.check('SETUP short on tc goes to item 0, no save', T.rd(e, ADDR_ITEM) == 0 and e.m.eeprom[0x0F] == 2)
+    T.check('SETUP short on tc goes to dSP (item 24), no save', T.rd(e, ADDR_ITEM) == 24 and e.m.eeprom[0x0F] == 2,
+            'item=%d ee0F=%d' % (T.rd(e, ADDR_ITEM), e.m.eeprom[0x0F]))
     e.power_cycle()
     e.command({'dial': 3})
     e.advance(3.0)
@@ -122,12 +125,12 @@ def run_tests(image, a_type, a_result):
     e = T.make(image, {0x0F: 1})
     e.command({'dial': 2})                           # DCV
     e.advance(3.0)
-    to_item(e, 21)
+    to_item(e, 22)
     T.press(e, 'SETUP', gap=0.5)
-    T.check('outside TEMP: SETUP short on bt goes to item 0', T.rd(e, ADDR_ITEM) == 0)
+    T.check('outside TEMP: SETUP short on rEL skips tc, goes to dSP (item 24)', T.rd(e, ADDR_ITEM) == 24,
+            'item=%d' % T.rd(e, ADDR_ITEM))
     e = meter(image, {0x0F: 1})
-    to_item(e, 21)
-    T.press(e, 'SETUP', gap=0.5)
+    to_item(e, 23)                                   # TEMP: bt -> rEL -> tc
     T.long_press(e, 'SETUP')
     T.press(e, 'REL', gap=0.5)
     T.check('tc edited to T', T.rd(e, a_type) == 2)

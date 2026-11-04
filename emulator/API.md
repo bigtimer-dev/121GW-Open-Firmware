@@ -138,6 +138,11 @@ Body: one JSON object with one command, `curl -X POST http://127.0.0.1:8121/inpu
 order is executed: `key`, `dial`, `jack`, `run`, `reset`, `sysreset`, `battery`, `analog`, `input`, `environment`, `sdcard`,
 `speed`, `firmware`.
 
+Every request must name the server in its `Host` header (`127.0.0.1`, `localhost` or `[::1]` with the port), and a POST
+that carries an `Origin` header (every browser POST) must come from the emulator's own page; otherwise HTTP 403. curl and
+scripts send no `Origin` and are not affected; a web page of another site (or a DNS-rebinding name) cannot drive the
+emulator. A missing-number or negative `Content-Length`, or an `/input` body above 64 KiB, is refused with HTTP 400.
+
 ### 4.1 key
 
 `{"key": NAME, "down": bool}`: press (`true`) or release (`false`) a key. Names: `MODE`, `SETUP`, `MINMAX`, `MEM`, `RANGE`,
@@ -242,7 +247,7 @@ curl -s -X POST localhost:8121/input -d '{"sdcard":false}'
 - `{"reset": true}`: power cycle: everything restarts, the EEPROM, the board inputs, the stimulus and the clock chip stay.
 - `{"sysreset": true}`: system reset of the MCU in place (as the firmware writing SCB_AIRCR.SYSRESETREQ): SRAM, EEPROM and the
   RTC domain stay; with a bootloader image the bootloader runs again, in direct boot the application restarts (2.2).
-- `{"speed": X}`: run rate, 1.0 = real time.
+- `{"speed": X}`: run rate, 1.0 = real time; above 0 and at most 1000 (NaN, infinity, 0 or below: HTTP 400).
 - `{"firmware": NAME}`: switch to the bundled build `NAME` (`2_fast` or `1_like_v2.05`, `machine.firmware_choices`) and power
   cycle. The EEPROM stays, as when a meter is updated.
 

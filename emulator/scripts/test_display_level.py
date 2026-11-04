@@ -94,7 +94,8 @@ def run_tests(image, a_level):
     diff = {i: (before[i], e.m.eeprom[i]) for i in range(len(before)) if before[i] != e.m.eeprom[i]}
     T.check('save wrote only 0x013 = 1', diff == {0x13: (0, 1)}, 'diff=%r' % (diff,))
     T.press(e, 'SETUP', gap=0.5)
-    T.check('SETUP short on dSP goes to item 0', T.rd(e, ADDR_ITEM) == 0)
+    T.check('SETUP short on dSP (DCV) goes to CL (item 25; bH is offered in BEEP only)', T.rd(e, ADDR_ITEM) == 25,
+            'item=%d' % T.rd(e, ADDR_ITEM))
     e.power_cycle()
     e.command({'dial': 2})
     e.advance(3.0)

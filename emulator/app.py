@@ -161,7 +161,7 @@ class Emulator:
         self.tables = None                  # v2.05 tables for the front end, unless an original image is given
         if not self.v205_path:
             self.tables = V205Tables.load(tables or bundle.tables_path())
-        self.speed = speed                  # 1.0 = real time
+        self.speed = check_speed(speed)     # 1.0 = real time
         self.lock = threading.RLock()
         self.running = True
         self.board_state = {'keys': set(), 'dial': 2, 'jacks': set()}
@@ -482,7 +482,7 @@ class Emulator:
             elif 'sdcard' in c:
                 self.set_sdcard(c['sdcard'])
             elif 'speed' in c:
-                self.speed = float(c['speed'])
+                self.speed = check_speed(c['speed'])
             elif 'firmware' in c:
                 # run another bundled firmware build: power cycle with the new image (EEPROM, board inputs and clock chip
                 # stay, as when a meter is updated)
@@ -501,7 +501,9 @@ class Emulator:
         problems = check_app_image(data)
         if problems:
             raise ValueError('not a 121GW application image: ' + '; '.join(problems))
-        safe = ''.join(ch if ch.isalnum() or ch in '._-' else '_' for ch in os.path.basename(name or ''))[:80] or 'firmware.bin'
+        safe = ''.join(ch if ch.isalnum() or ch in '._-' else '_' for ch in os.path.basename(name or ''))[:80]
+        if not safe.strip('.'):                     # '', '.' or '..' would name the upload directory or its parent
+            safe = 'firmware.bin'
         if not getattr(self, '_upload_dir', None):
             import tempfile, atexit, shutil
             self._upload_dir = tempfile.mkdtemp(prefix='121gw-fw-')
@@ -512,6 +514,15 @@ class Emulator:
         with self.lock:
             self.firmware_name, self.app_path = None, path
             self.power_cycle(); self.running = True
+
+
+def check_speed(x):
+    """The run rate as a float: finite, above 0 and at most 1000 (ValueError otherwise).  NaN or infinity reached the
+    instruction count int(sysclk * slice * speed) of loop() and stopped the emulation thread; 0 or below ran nothing."""
+    v = float(x)
+    if not 0.0 < v <= 1000.0:                       # also false for NaN
+        raise ValueError(f'speed {x!r} out of range: above 0, at most 1000')
+    return v
 
 
 def start_server(emu, port, tries=1):

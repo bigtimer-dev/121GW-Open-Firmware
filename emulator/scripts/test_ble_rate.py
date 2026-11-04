@@ -86,7 +86,8 @@ def run_tests(image, a_rate, a_dbm):
     T.check('after the save the edit has ended: steady "bt 20", no blink', 'BT 20' in texts and '     ' not in texts,
             'samples=%r' % (texts,))
     T.press(e, 'SETUP', gap=0.5)
-    T.check('SETUP short on bt goes to item 0', T.rd(e, ADDR_ITEM) == 0)
+    T.check('SETUP short on bt goes to rEL (item 22, the page order of USER_GUIDE.md)', T.rd(e, ADDR_ITEM) == 22,
+            'item=%d' % T.rd(e, ADDR_ITEM))
     T.long_press(e, 'PEAK')
     e.advance(0.5)
     n = frames(e, 2.0)
