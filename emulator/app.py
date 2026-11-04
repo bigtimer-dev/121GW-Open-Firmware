@@ -121,6 +121,62 @@ DIRECT_BOOT_NOTE = ('direct boot: the application starts from its vector table (
                     "bootloader's TIM2/NVIC/clock/FLASH_PECR/GPIO/LCD state is not reproduced (app.py DIRECT_BOOT_NOTE)")
 
 
+# fork (custom CF-07): what the meter sends over Bluetooth, decoded for the page's Bluetooth panel
+SETUP_PAGES = {1: 'battery', 2: 'auto power-off', 3: 'beeper', 4: 'LCD contrast', 5: 'year', 6: 'date', 7: 'time',
+               8: 'meter ID', 9: 'logging interval', 10: 'item 10 (mode option)', 11: 'item 11 (mode option)',
+               12: 'item 12 (mode option)', 20: 'bL backlight', 21: 'bt Bluetooth rate', 22: 'rEL REL view',
+               23: 'tc thermocouple', 24: 'dSP display level', 25: 'CL clock 12/24 h', 26: 'bH beep hold',
+               27: 'Lt limit test', 28: 'Lo low limit', 29: 'HI high limit', 30: 'tr log trigger', 31: 'Ch change',
+               32: 'n statistics count', 33: 'Sd std deviation', 34: 'tHI time of max', 35: 'tLo time of min',
+               36: 'limit verdict', 37: 'LP loop %', 38: 'Pt RTD', 39: 'Ld upload', 100: 'MEM view'}
+UNIT_BITS = ((1, 'V'), (2, 'A'), (4, 'm'), (8, 'k'), (16, 'Hz'), (32, 'dB'), (64, 'Ohm'))
+
+
+class BleView:
+    """Splits the bytes the meter sent into status frames (F2, 19 bytes) and SETUP text frames (F7, 11 bytes)."""
+
+    def __init__(self):
+        self.seen, self.buf, self.f2, self.lines, self.now = 0, b'', 0, [], None
+
+    def update(self, rx, t_ms):
+        if self.seen > len(rx):                     # the list was replaced (reset)
+            self.seen = 0
+        self.buf += bytes(b & 0xFF for b in rx[self.seen:])
+        self.seen = len(rx)
+        i, buf = 0, self.buf
+        while i < len(buf):
+            b = buf[i]
+            n = 19 if b == 0xF2 else 11 if b == 0xF7 else 0
+            if n and i + n > len(buf):
+                break
+            x = 0
+            for v in buf[i:i + n]:
+                x ^= v
+            if n and x == 0:
+                if b == 0xF2:
+                    self.f2 += 1
+                else:
+                    self._text(buf[i:i + n], t_ms)
+                i += n
+            else:
+                i += 1
+        self.buf = buf[i:][-64:]
+        return {'status_frames': self.f2, 'now': self.now, 'frames': self.lines[-40:]}
+
+    def _text(self, f, t_ms):
+        item, chars, flags, units = f[1], ''.join(chr(c) if 32 <= c < 127 else '#' for c in f[2:7]), f[7], f[8]
+        d = flags & 7
+        shown = chars if not d else chars[:5 - d] + '.' + chars[5 - d:]
+        if flags & 0x10:
+            shown = '-' + shown
+        u = ''.join(n for bit, n in UNIT_BITS if units & bit)
+        page = SETUP_PAGES.get(item, 'item %d' % item) if item else 'normal display (left SETUP)'
+        self.now = None if item == 0 else {'item': item, 'page': page, 'text': shown, 'edit': bool(flags & 0x20),
+                                           'units': u}
+        self.lines.append('%10.1f ms  F7  item %3d  %-22s  %-8r %s%s  [%s]' % (
+            t_ms, item, page, shown, u, '  EDIT' if flags & 0x20 else '', f.hex(' ')))
+
+
 class Emulator:
     # HY3131 front end: backend 'calibrated' or 'netlist' (emu/frontend.py), noise on/off and RNG seed
     frontend_kind = 'calibrated'
@@ -220,6 +276,7 @@ class Emulator:
         self.adc.set_channel_volts(5, self.analog['PA5'])
         self.adc.set_channel_volts(4, self.analog['PA4'])
         self.ble_rx = []
+        self.ble_view = BleView()                # fork: decoded Bluetooth output for the page (CF-07 text frames)
         self.usart2.on_tx.append(lambda b: self.ble_rx.append(b))
         # DMA1 / DMA2 and the SDIO host (SD socket CN4: PD2 CMD, PC12 CLK, PC8 D0); SDIO is DMA2 channel 4 (RM0038 table 56)
         self.dma1, self.dma2 = DMA('DMA1', 0x40026000, 7, 11), DMA('DMA2', 0x40026400, 5, 50)
@@ -432,6 +489,7 @@ class Emulator:
                 'machine': self.machine_info(),
                 'safety': list(self.safety.violations),
                 'log': [f'{c / max(1, m.sysclk_hz) * 1000:10.3f} ms  {t}' for c, t in m.log[-200:]],
+                'ble': self.ble_view.update(self.ble_rx, float(m.elapsed_s()) * 1000),
             }
 
     def command(self, c):
@@ -545,14 +603,14 @@ def check_speed(x):
     return v
 
 
-def start_server(emu, port, tries=1):
+def start_server(emu, port, tries=1, host=None):
     """Start the UI server on `port`, or on the next free port of the following tries - 1.  Returns (httpd, port).
     An occupied port is reported with the option that changes it, never swallowed."""
     from ui.server import serve
     last = None
     for p in range(port, port + tries):
         try:
-            return serve(emu, p), p
+            return serve(emu, p, host), p
         except OSError as e:
             last = e
     raise SystemExit(f'cannot start the UI server on port {port}' + (f'..{port + tries - 1}' if tries > 1 else '')
@@ -576,6 +634,9 @@ def main(argv=None, on_ready=None):
     ap.add_argument('--hw-cal', help='EEPROM image describing the physical calibration of the front end '
                     '(default: the EEPROM as loaded at start)')
     ap.add_argument('--port', type=int, default=8121)
+    ap.add_argument('--host', metavar='ADDRESS', default=None,
+                    help='fork: also serve the UI on this address of the computer (its LAN IP), for another device on '
+                         'the network; default: this computer only (127.0.0.1)')
     ap.add_argument('--port-tries', type=int, default=1, metavar='N',
                     help='try N consecutive ports from --port until one is free (default 1)')
     ap.add_argument('--speed', type=float, default=1.0)
@@ -606,8 +667,8 @@ def main(argv=None, on_ready=None):
     if info['eeprom_note']:
         print('  EEPROM: ' + info['eeprom_note'], flush=True)
     if not a.no_ui:
-        _, port = start_server(emu, a.port, a.port_tries)
-        url = f'http://127.0.0.1:{port}'
+        _, port = start_server(emu, a.port, a.port_tries, a.host)
+        url = f'http://{a.host or "127.0.0.1"}:{port}'
         print(f'121GW emulator UI: {url}', flush=True)
         if a.open:
             threading.Timer(0.5, webbrowser.open, (url,)).start()

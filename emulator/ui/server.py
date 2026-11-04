@@ -32,7 +32,7 @@ TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 
          '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg'}
 
 
-def make_handler(emu):
+def make_handler(emu, lan_host=None):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -47,7 +47,10 @@ def make_handler(emu):
 
         def _hosts(self):
             port = self.server.server_address[1]
-            return {f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}'}
+            hosts = {f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}'}
+            if lan_host:                                 # fork: --host ADDRESS (opt-in, the address named only)
+                hosts.add(f'{lan_host}:{port}')
+            return hosts
 
         def _local_host(self):
             host = self.headers.get('Host')
@@ -115,8 +118,10 @@ def make_handler(emu):
     return H
 
 
-def serve(emu, port=8121):
-    httpd = ThreadingHTTPServer(('127.0.0.1', port), make_handler(emu))
+def serve(emu, port=8121, host=None):
+    """host (fork, opt-in): also accept requests for this address of the computer (e.g. its LAN IP); the server then
+    listens on all interfaces, and still answers only requests that name 127.0.0.1, localhost, [::1] or that address."""
+    httpd = ThreadingHTTPServer(('0.0.0.0' if host else '127.0.0.1', port), make_handler(emu, host))
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
     return httpd

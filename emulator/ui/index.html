@@ -99,6 +99,9 @@
     <div id="estat" style="margin-top:6px"></div>
   </div>
   <div class="panel"><h3>LCD RAM (COM &#215; SEG, raw — independent of the glass map)</h3><div id="matrix"></div></div>
+  <div class="panel"><h3>Bluetooth: SETUP page text (fork CF-07, frame F7)</h3>
+    <div id="blenow" style="font:15px Menlo, monospace; margin-bottom:6px"></div>
+    <div id="blelog" style="font:11px/14px Menlo, monospace; height:220px; overflow:auto; white-space:pre; color:#c7d0d6"></div></div>
   <div class="panel"><h3>Event log</h3><div id="log"></div></div>
 </div>
 <script>
@@ -250,6 +253,13 @@ async function tick() {
     if (s.analog) { if (!analogInit || document.activeElement !== sv('PA4')) { sv('PA4').value = s.analog.PA4; sv('PA4v').textContent = s.analog.PA4.toFixed(2); }
       if (s.battery !== undefined && (!analogInit || document.activeElement !== sv('BAT'))) { sv('BAT').value = s.battery; sv('BATv').textContent = s.battery.toFixed(2); }
       analogInit = true; }
+    if (s.ble) {
+      const n = s.ble.now, bn = document.getElementById('blenow');
+      bn.textContent = (n ? `page ${n.item} (${n.page}):  "${n.text}" ${n.units}${n.edit ? '  [editing]' : ''}`
+                          : 'normal display (no SETUP page)') + `   ·   status frames received: ${s.ble.status_frames}`;
+      const bl = document.getElementById('blelog'), bEnd = bl.scrollTop + bl.clientHeight >= bl.scrollHeight - 4;
+      bl.textContent = s.ble.frames.join('\n'); if (bEnd) bl.scrollTop = bl.scrollHeight;
+    }
     const lg = document.getElementById('log'), atEnd = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 4;
     lg.textContent = s.log.join('\n'); if (atEnd) lg.scrollTop = lg.scrollHeight;
   } catch (e) { console.error(e); }

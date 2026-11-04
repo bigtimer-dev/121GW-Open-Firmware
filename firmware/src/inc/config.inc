@@ -25,13 +25,13 @@
     @ IMP-02 window), five characters with the decimal point after the third: "F-1.02" (F = fast build, release v1.0.2;
     @ a release tag vA.B.C must match "F-A.BC", checked by .github/scripts/check_fw_version.py before anything is
     @ published).
-    @ Custom build: "C-1.02" (C = custom fixes CF-01.. on top of the fast build v1.0.2; tagged custom-c*, never v*, so
+    @ Custom build: "C-1.03" (C = custom changes CF-01.. on top of the fast build v1.0.2; tagged custom-c*, never v*, so
     @ check_fw_version.py does not apply).
     .equ FW_VER_C0, 'C'
     .equ FW_VER_C1, '-'
     .equ FW_VER_C2, '1'
     .equ FW_VER_C3, '0'
-    .equ FW_VER_C4, '2'
+    .equ FW_VER_C4, '3'
 
     @ DEBUG = 1 sets DBGMCU_CR DBG_SLEEP | DBG_STOP | DBG_STANDBY at every start as v2.05 does (0x0801BEF8).
     @ Production (0) leaves DBGMCU_CR alone so STOP is the true low-current STOP (NF-18, RM0038 30.16.3).

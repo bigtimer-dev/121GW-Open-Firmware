@@ -167,6 +167,7 @@ ENDFUNC fn_0800C53A
 FUNC fn_0800C5D2
     push {r7, lr}                           @ 0800C5D2
     bl build_status_packet_19b              @ 0800C5D4  build the 19-byte status frame
+    bl ble_subtext_frame                    @ CF-07: the SETUP page text frame F7 (ble/subtext.s)
     pop {r0, pc}                            @ 0800C5D8
 ENDFUNC fn_0800C5D2
     .ltorg

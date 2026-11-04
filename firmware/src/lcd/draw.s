@@ -401,6 +401,13 @@ FUNC lcd_draw_glyph
     push {r4, r5, r6, lr}                    @ 0801A950
     movs r4, r0                              @ 0801A952
     movs r5, r1                              @ 0801A954
+    @ CF-07: remember the character of a sub-display position (0..4) for the SETUP text frame (ble/subtext.s)
+    uxtb r2, r5
+    cmp r2, #5
+    bhs 1f
+    ldr r0, =ble_sub_chars
+    strb r4, [r0, r2]
+1:
     movs r0, r4                              @ 0801A956
     uxtb r0, r0                              @ 0801A958
     @ r6 = segment byte from the font lookup

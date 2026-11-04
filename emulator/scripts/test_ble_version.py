@@ -81,7 +81,20 @@ def run_tests(image):
     e.usart2.rx_feed(b'\xF4' + b'0505')
     e.advance(1.0)
     got = frames_after(e, n0)
-    T.check('echo of the key frame, no version frame', got == b'\xF4' + b'0505', 'got %r' % got)
+    # the mode key opens a function-option page; C-1.03+ (CF-07) then also sends the page text (F7, 11 bytes): not a
+    # version frame, so it is taken out before the comparison
+    rest, i = b'', 0
+    while i < len(got):
+        f = got[i:i + 11]
+        x = 0
+        for b in f:
+            x ^= b
+        if got[i] == 0xF7 and len(f) == 11 and x == 0:
+            i += 11
+            continue
+        rest += got[i:i + 1]
+        i += 1
+    T.check('echo of the key frame, no version frame', rest == b'\xF4' + b'0505', 'got %r' % got)
     T.check('mode changed by the remote mode key', T.rd(e, ADDR_MODE) != mode0,
             'mode %d -> %d' % (mode0, T.rd(e, ADDR_MODE)))
     s = e.snapshot()
