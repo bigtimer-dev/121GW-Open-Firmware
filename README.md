@@ -1,3 +1,123 @@
+# 121GW Open Firmware: custom build C-0.94 (bigtimer-dev fork)
+
+This is a fork of [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) at **v0.9.4** (fast
+build, commit `3e7953d`) with four firmware bug fixes and five emulator fixes on top. The meter shows **`C-0.94`** at
+power-on. It has been running on a real 121GW since 2026-11-03.
+
+The firmware port and the emulator are zombu4's work; this fork only adds the changes listed below. zombu4's licence
+([`LICENSE`](LICENSE), unchanged) covers everything here: free to use, modify and share, never for money and never
+bundled with a product. This is a personal build, not an official zombu4 or EEVblog release. Flashing is at your own
+risk.
+
+## What is different from zombu4's v0.9.4
+
+| | Fix | Files |
+|---|---|---|
+| CF-01 | **The limit test runs alone.** While `Lt` is on, REL, HOLD, PEAK and MIN/MAX are refused (double beep), and `Lt` can't be switched on while one of them is on. In v0.9.4 each of them froze the range and restored it on its own, so ending them in another order than they were started left the meter in a manual range with AUTO off, or unfroze the range during the test, so the next range change ended the test without any indication. | `firmware/src/set/limit.s`, `key/short.s`, `key/long.s` |
+| CF-02 | **No `Lo` / `HI` capture from an overload.** A capture while the display showed `OFL` stored the hidden count (e.g. 9 V in the 5 V range stored 90000) as a limit. Now refused, nothing stored. | `set/limit.s` |
+| CF-03 | **Turning the dial during a limit test keeps the new function's range lock.** v0.9.4 restored the lock saved when the test started: DIODE lost its fixed range, or the next function stayed in a manual range. | `set/limit.s` |
+| CF-04 | **SD log file times from a bad clock read.** Hour > 23, minute or second > 59 or year > 99 were packed unchecked into the FAT date and time. Now any bad field gives 1980-01-01 00:00, as an unread clock already did. | `sd/diskio.s` |
+| E-01..E-05 | **Emulator:** speed NaN / inf / ≤ 0 refused (it stopped the emulation thread); the web UI refuses requests from other web pages (Host and Origin checks); negative or non-numeric `Content-Length` refused and `/input` capped at 64 KiB; upload names `.` / `..`; static file path check. | `emulator/app.py`, `emulator/ui/server.py` |
+
+- Every firmware change is in the production (fast) build only. The strict `1_like_v2.05` build of this tree is
+  byte-identical to zombu4's v0.9.4 release.
+- Details, how each bug was reproduced, and the test results: [`firmware/CUSTOM_CHANGES.md`](firmware/CUSTOM_CHANGES.md).
+- All the features and how to use them: [`firmware/USER_GUIDE.md`](firmware/USER_GUIDE.md) (zombu4's guide, with the
+  limit-test change marked).
+- **Not included:** zombu4's later releases F-0.95 and F-0.96. They add a DCV 16-sample window, auto-hold at 0 Ω / 0 V,
+  4–20 mA loop percent, PT100/PT1000 and thermocouple types N/R/S, and came after this fork's base. For those, use
+  zombu4's repository.
+- The faster auto-range profiles (`AR_PROFILE_TP_*`) stay off until their hardware step tests (`HARDWARE_TEST.md`
+  H1..H4) are done.
+- This fork publishes no release downloads; build the image as below. The *Downloads* section further down describes
+  zombu4's releases.
+
+## Build
+
+Needs GNU binutils arm-none-eabi **2.46.0** exactly (the `Makefile` refuses other versions; zombu4's CI builds
+2.46.0.20260210 from the release tarball, see `.github/workflows/firmware.yml`) and Python 3.
+
+```sh
+sh firmware/tools/build_dist.sh /tmp/dist check-ci
+sha256sum /tmp/dist/2_fast/EEVBlog.bin
+```
+
+`2_fast/EEVBlog.bin` must have the SHA-256 `355c6ff0485987bd781f943a971da6e311018afdea8976f156ccc34cf2842580`
+(148228 bytes): the image flashed on the meter, byte for byte. `1_like_v2.05/EEVBlog.bin` is the strict build, identical
+to zombu4's v0.9.4 strict image.
+
+## Flashing a 121GW
+
+1. **Back up first**, with the firmware that is on the meter now:
+   - Download EEVblog's original `EEVBlog.bin` v2.05 from EEVblog's 121GW page. It is your way back.
+   - Save the calibration as `cal.bin`:
+     1. Meter off, card in. Hold **MEM** and switch on.
+     2. **Release MEM as soon as `SdCAL` shows.**
+     3. Press **REL** (`SdSAv`), then **MODE** (`SAvEd`).
+     4. Copy `cal.bin` from the card to your PC.
+
+     Watch for these:
+     - If MEM is still held, REL does nothing.
+     - Holding MEM for about 3 s starts logging instead.
+     - **PEAK** at `SdCAL` *loads* `cal.bin` from the card, overwriting the calibration. Don't press it.
+2. Fresh batteries. Copy `2_fast/EEVBlog.bin` to the root of a FAT32 card, keeping the name `EEVBlog.bin`.
+3. Meter off, card in. Hold **MEM + HOLD** and switch on: the display shows `-IAP-`. Press **SETUP**: `Down` shows, the
+   meter writes the firmware and restarts.
+4. At power-on the sub display briefly shows **`C-0.94`**, then the reading.
+
+The bootloader is never rewritten, and the data EEPROM (calibration, serial number, settings) is not touched. To go
+back, flash the original v2.05 `EEVBlog.bin` the same way; settings and calibration stay (same EEPROM layout). For the
+full checklist, see [`firmware/HARDWARE_TEST.md`](firmware/HARDWARE_TEST.md).
+
+First checks after flashing:
+- Readings in every dial position against a reference or a second meter, and the battery voltage.
+- Auto power-off, the continuity beep, and a short SD log. The file date is right once the meter's clock is set.
+- The limit test:
+  1. On the SETUP pages `Lo` and `HI`, capture a limit: hold SETUP, press REL, hold SETUP.
+  2. Switch `Lt` on.
+  3. REL, HOLD, PEAK and MIN/MAX now refuse with a double beep.
+
+## Bluetooth and apps
+
+The Bluetooth frame format, the key codes and the set-clock frame are those of v2.05, so the official apps keep working.
+For app developers:
+
+- **Frame rate:** SETUP page `bt` selects 2 (default, as v2.05), 4, 10 or 20 frames per second.
+- **New SETUP pages** (`bL`, `bt`, `rEL`, `dSP`, `CL`, `Lt`, `Lo`, `HI`, `tr`, …) send zeros in the sub-display field.
+- **Overload:** the bar byte is at most 25, the segments the display shows (zombu4's OF-65). v2.05 sent 45..55.
+- **REL in percent and the dBm reference** change only the meter's display; Bluetooth carries the normal values.
+- **Remote keys during a limit test:** REL, HOLD, PEAK and MIN/MAX are refused, like the buttons.
+- **Set clock:** `F8` + year − 2000, month, day, hour, minute, second and their XOR, each as two upper-case ASCII hex
+  digits (15 bytes). The meter echoes the frame. It applies the first good frame after power-on or after Bluetooth is
+  switched on (PEAK long), and ignores further ones until Bluetooth is switched off and on. See
+  `emulator/scripts/test_clock_frame.py`.
+
+A Linux desktop app checked against this build, including 20 frames/s and clock sync:
+[bigtimer-dev/121gw-linux](https://github.com/bigtimer-dev/121gw-linux).
+
+## Tests
+
+Python 3 with `unicorn` and `capstone`, binutils as above:
+
+```sh
+sh firmware/tools/build_dist.sh /tmp/dist none
+python3 emulator/tools/prepare_data.py --dist /tmp/dist   # once: fills emulator/data (git-ignored)
+(cd firmware && make check-ci)                            # production image + map in firmware/build/
+python3 -I emulator/scripts/test_custom_fixes.py          # CF-01..CF-03, 26 checks (v0.9.4: 14 fail)
+python3 -I emulator/scripts/test_custom_fattime.py        # CF-04, 14 calendar inputs (v0.9.4: 6 fail)
+python3 -I emulator/scripts/test_custom_server.py         # E-01..E-05, 20 checks
+python3 -I emulator/scripts/test_clock_frame.py           # Bluetooth set-clock frame
+```
+
+`build_dist.sh` builds the strict image last, so run `make check-ci` after it: the scripts use `firmware/build/`. zombu4's
+16 feature test scripts in `emulator/scripts/` pass too (391 checks). Three of them, `test_ble_rate.py`,
+`test_display_level.py` and `test_tc_type.py`, needed their SETUP page navigation updated to the current page order;
+they failed the same way on the unmodified v0.9.4.
+
+---
+
+*zombu4's original README follows, unchanged.*
+
 # 121GW-Open-Firmware — EEVblog 121GW open firmware port and emulator
 
 <p align="center"><img src="emulator/ui/assets/logo_anim.gif" alt="121GW running this firmware in the emulator" width="300"></p>
