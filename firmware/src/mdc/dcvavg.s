@@ -28,7 +28,6 @@
 @ configuration change resets mad to 0.
 @ Calibration mode keeps v2.05's blocks of 16 (the captures of CAL average the published means).
 @
-@ Not present in the strict image (LOOP_V205 = 1): this file assembles to nothing there.
 @ Context: main only.
 @ =============================================================================
 
@@ -39,7 +38,6 @@
     .include "ram_v205.inc"
     .include "config.inc"
 
-    .if LOOP_V205 == 0
 
     .equ MDC_DCV_HALF, 8                    @ samples per published mean (half of the 16-sample window)
     .equ MDC_DCV_FIRST, 4                   @ samples of the first mean after a step (IMP-01 N_first)
@@ -219,4 +217,3 @@ ENDFUNC mdc_dcv_reset
 
     .ltorg
 
-    .endif

@@ -432,6 +432,15 @@ times on an ideal front end; real settling can only lengthen them. The dead band
 covered by the manual's "not designed to be operated at low voltages (below 12V)" and is not part of this issue.
 Port: while the LowZ detector has not confirmed a voltage, blank the main digits (or show dashes) instead of a
 numeric 0.0.
+Port correction (2026-11-03, seen on a meter): with nothing connected, the first mean after each AC/DC re-apply of the
+dead band rises above the threshold for one mean (Bluetooth frames of a meter in LowZ at 0 V: one frame with a full bar
+about every 2.9 s), so the dashes flashed briefly every few seconds (GitHub issue 1). v2.05 hid that mean behind its
+forced 0. The port now keeps the digits on the glass for the first unconfirmed mean and shows the dashes from the second
+on (`ui_blank_req` = 3, `mres/lowz.s`); a real voltage still shows dashes one mean later and its value after the five
+means of v2.05. Verified working on a meter (v0.9.8, LowZ, nothing connected: no more dashes).
+Production image, v0.9.9: the bargraph had the same cause (it follows the per-sample value, so the settling spike flicked
+it to full scale and flipped its sign); it now keeps its segments during that first mean (`lowz_bar_hold`, `mres/lowz.s`,
+read by `fn_08018B14`). Verified working on a meter (v0.9.9, LowZ, nothing connected: the bargraph stays put).
 
 ### OF-31 — main loop paced by the LCD update busy-wait
 `lcd_commit_shadow` (`0x0801B304`) waits before every RAM write until LCD_SR.UDR clears: `0x0801B336 movs r0,#4`,
@@ -908,6 +917,17 @@ after DATAEND would otherwise not be seen.  Whether the SDIO block sets DATAEND 
 RM0038; the flag test covers both orders.  The log's retry path then repeats the session.  Together with OF-64 the same test gives one
 complete file, rows 1..N without a gap, for a disturbed write and a disturbed read.
 
+Port correction (fast build, 2026-11-04, found with the Bluetooth file transfer of IMP-28): on a meter the SDIO
+"data end" notification (`sd_transfer_end`, set by the SDIO interrupt on DATAEND) was sometimes never seen after a block
+read, while the DMA end was seen, SDIO_STA held no error flag and the hardware counters showed the block complete
+(SDIO_DCOUNT = 0, DMA2 channel 4 CNDTR = 0): 16 of the reads of one 155 kB transfer.  The OF-59 wait for both
+notifications then failed the read (FatFs: disk error), so card writes (FatFs reads the FAT while it writes) and the
+read-back check failed now and then, although every byte on the card was right (files compared on a computer).  v2.05
+never waited for the notifications, so it never saw this.  `disk_read` now takes such a block on the hardware counters
+(no error flag, DCOUNT 0, CNDTR 0) and counts it (`sd_dg_recov`); why the DATAEND notification is missed is not known
+yet (the emulator does not reproduce it).  Verified working on a meter: the 155 kB transfer then ran with 0 failed
+card sessions and 16 reads taken on the counters, and `EEVBlog.bin` was written and verified.
+
 ### OF-60 — the file forced after 20 failed attempts has no header
 `log_session_once` sets the header due (0x20008026) after creating a file only while the forced-file counter 0x20007FAE is 0
 (`0x0801D202`..`0x0801D214`).  `log_force_new_file` (`0x0801D51A`) increments that counter, so the file it starts after 20
@@ -960,8 +980,9 @@ ff8a, ff10a, ff10b, ff10c from elm-chan.org):
 These paths are reached only on a disk error, which v2.05 never reports (OF-59); with OF-59 fixed they are reached.
 Execution check (`test_sd_errors.py` with the OF-59 fix but without these): a disturbed write left a directory entry with
 start cluster 0xFFFFFFFF and size 0, the retries could not reopen it and a second file was forced.
-Port (both builds, `src/sd/fat.s`, `src/sd/fat_file.s`): the four changes above as in R0.10a..R0.10c (window invalid =
-sector number 0xFFFFFFFF).  Kept as v2.05: the write results of the second FAT copy and of the FSInfo sector are not checked
+Port (strict build, `src/sd/fat.s`, `src/sd/fat_file.s`): the four changes above as in R0.10a..R0.10c (window invalid =
+sector number 0xFFFFFFFF).  The production build runs FatFs R0.16 with patches 1 and 2 instead (DESIGN.md 7A, IMP-29),
+which contains these fixes.  Kept as v2.05 in both builds (R0.16 does the same in sync_window and sync_fs): the write results of the second FAT copy and of the FSInfo sector are not checked
 (the first FAT is the one read back).
 
 ### OF-65 — the status frame's bar byte exceeds the display's 25 segments on an overload

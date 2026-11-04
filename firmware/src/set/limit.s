@@ -33,7 +33,6 @@
 @ CF-03: a mode change ends the test without restoring range_manual: the mode apply (fn_0800D2D0, 0x0800D3B2..0x0800D3C6)
 @ has set it for the new mode (0, or 1 for DIODE) before lt_tick sees the change, and the restore overwrote that.
 @
-@ Not present in the strict image (LOOP_V205 = 1): this file assembles to nothing there.
 @ Context: main only.
 @ =============================================================================
 
@@ -45,7 +44,6 @@
     .include "ram_v205.inc"
     .include "config.inc"
 
-    .if LOOP_V205 == 0
 
     .equ LT_ITEM_ON,          27
     .equ LT_ITEM_LO,          28
@@ -469,4 +467,3 @@ ENDFUNC set_lt_draw
 
     .ltorg
 
-    .endif

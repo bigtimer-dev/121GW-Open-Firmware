@@ -17,6 +17,28 @@
     .include "ram_v205.inc"
     .include "config.inc"
 
+    .section .bss_port.sddiag, "aw", %nobits
+    .balign 2
+@ SD failure diagnosis (production image only, read by ble/bft.s over Bluetooth; owner SD): the last disk_read /
+@ disk_write that returned an error and why.  Nothing reads it to decide anything.
+    .global sd_dg_count, sd_dg_sta, sd_dg_op, sd_dg_reason, sd_dg_terr, sd_dg_wait
+sd_dg_count:    .space 2                    @ failed disk_read / disk_write calls since power-on
+sd_dg_sta:      .space 2                    @ SDIO_STA (low 16 bits) at the failure
+sd_dg_op:       .space 1                    @ 1 disk_read, 2 disk_write
+sd_dg_reason:   .space 1                    @ read: 1 no transfer state (CMD13 polls), 2 SDIO error, 3 data end / DMA end not seen;
+                                            @ write: 1 no transfer state, 2 sd_wait_write ran out of polls (4) or CMD12 failed,
+                                            @ 3 SDIO error code (CRC status token, timeout, underrun)
+sd_dg_terr:     .space 1                    @ sd_transfer_error at the failure
+sd_dg_wait:     .space 1                    @ write: result of sd_wait_write
+sd_dg_flags:    .space 1                    @ read, end wait ran out: sd_transfer_end << 1 | sd_dma_end
+sd_dg_dmaisr:   .space 1                    @ DMA2_ISR channel 4 flags (bits 15..12 >> 12: TE HT TC GIF)
+sd_dg_cndtr:    .space 2                    @ DMA2 channel 4 CNDTR (words still to move)
+sd_dg_dcount:   .space 2                    @ SDIO_DCOUNT (bytes still to receive, low 16 bits)
+sd_dg_stahi:    .space 2                    @ SDIO_STA bits 31..16 (FIFO state)
+sd_dg_recov:    .space 2                    @ reads taken on the hardware counters after the end wait ran out
+    .global sd_dg_flags, sd_dg_dmaisr, sd_dg_cndtr, sd_dg_dcount, sd_dg_stahi, sd_dg_recov
+    .previous
+
     .section .text.sd, "ax", %progbits
 
 @ names of the v2.05 variables used in this file (addresses unchanged, DESIGN.md 5.1)
@@ -311,7 +333,8 @@ ENDFUNC disk_status
 @ -----------------------------------------------------------------------------
 @ disk_read - read r3 sectors from the SD card (FatFs disk_read)
 @ Replaces : 0x08023F7E FUN_08023F7E (v2.05)
-@ In       : r0 = drive (0), r1 = buffer, r2 = first sector number, r3 = sector count (u8)
+@ In       : r0 = drive (0), r1 = buffer, r2 = first sector number, r3 = sector count (strict image: u8, as the BYTE of
+@            FatFs R0.08a; production image: the UINT of FatFs R0.16, IMP-29)
 @ Out      : r0 = 0 ok, 2 the card did not return to the transfer state within 20000 status polls, 1 (RES_ERROR) the SDIO
 @            reported an error for the block or its data end / DMA end did not come within 20000 polls (OF-59)
 @ Clobbers : r1-r3, r12, flags (AAPCS)
@@ -327,15 +350,93 @@ ENDFUNC disk_status
 @            at the first failure.  OF-57: the 64-bit byte address (v2.05: upper word 0, wrong past 4 GiB).  OF-59: each block
 @            is taken only after the SDIO data end and the DMA end, and an SDIO error (sd_transfer_error) fails the read.
 @ -----------------------------------------------------------------------------
+@ -----------------------------------------------------------------------------
+@ sd_dg_note - record a failed disk_read / disk_write (production image only, diagnosis)
+@ In       : r0 = op << 8 | reason
+@ Clobbers : r1, r2, flags (r0 kept)
+@ -----------------------------------------------------------------------------
+LFUNC sd_dg_note
+    ldr r1, =sd_dg_op
+    lsrs r2, r0, #8
+    strb r2, [r1]
+    ldr r1, =sd_dg_reason
+    strb r0, [r1]
+    ldr r1, =(SDIO_BASE + SDIO_STA)
+    ldr r2, [r1]
+    ldr r1, =sd_dg_sta
+    strh r2, [r1]
+    ldr r1, =sd_transfer_error
+    ldrb r2, [r1]
+    ldr r1, =sd_dg_terr
+    strb r2, [r1]
+    ldr r1, =sd_dg_count
+    ldrh r2, [r1]
+    adds r2, r2, #1
+    strh r2, [r1]
+    bx lr
+ENDFUNC sd_dg_note
+
+@ -----------------------------------------------------------------------------
+@ sd_dg_end_state - record the transfer state after a read's end wait ran out, and tell whether the block is complete
+@ Out      : r0 = 0 complete (DCOUNT 0, CNDTR 0, no data error flag), 1 not
+@ Clobbers : r1-r3, flags
+@ -----------------------------------------------------------------------------
+LFUNC sd_dg_end_state
+    ldr r1, =sd_transfer_end
+    ldr r1, [r1]
+    ldr r2, =sd_dma_end
+    ldr r2, [r2]
+    cmp r1, #0
+    ite ne
+    movne r3, #2
+    moveq r3, #0
+    cmp r2, #0
+    it ne
+    orrne r3, r3, #1
+    ldr r1, =sd_dg_flags
+    strb r3, [r1]
+    ldr r1, =DMA2_BASE
+    ldr r2, [r1]                            @ DMA2_ISR
+    ubfx r2, r2, #12, #4
+    ldr r3, =sd_dg_dmaisr
+    strb r2, [r3]
+    ldr r2, [r1, #DMA_CH4_CNDTR]
+    ldr r3, =sd_dg_cndtr
+    strh r2, [r3]
+    ldr r1, =SDIO_BASE
+    ldr r3, [r1, #SDIO_DCOUNT]
+    ldr r0, =sd_dg_dcount
+    strh r3, [r0]
+    ldr r0, [r1, #SDIO_STA]
+    lsrs r1, r0, #16
+    ldr r3, =sd_dg_stahi
+    strh r1, [r3]
+    movw r1, #0x23a
+    tst r0, r1
+    bne 1f                                  @ a data error flag: not complete
+    ldr r0, =sd_dg_cndtr
+    ldrh r0, [r0]
+    cbnz r0, 1f                             @ the DMA has words left
+    ldr r1, =SDIO_BASE
+    ldr r0, [r1, #SDIO_DCOUNT]
+    cbnz r0, 1f                             @ bytes still to come
+    movs r0, #0
+    bx lr
+1:  movs r0, #1
+    bx lr
+ENDFUNC sd_dg_end_state
+    .ltorg
+
 FUNC disk_read
     push    {r4, r5, r6, r7, r8, lr}
     sub     sp, sp, #8                      @ [sp] = byte count argument of sd_read_block (8-byte aligned frame)
     movs    r4, r0                          @ r4 = drive (unused, v2.05 keeps it in r4)
     mov     r8, r1                          @ r8 = buffer
     movs    r5, r2                          @ r5 = first sector
-    uxtb    r6, r3                          @ r6 = sectors left (u8, as disk_write)
+    mov     r6, r3                          @ r6 = sectors left (FatFs R0.16 passes the count as UINT, IMP-29)
 .Ldr_next:
-    cbz     r6, .Ldr_done                   @ nothing left: success
+    cmp     r6, #0
+    beq     .Ldr_done                       @ nothing left: success (the diagnosis code makes cbz too short)
     movw    r7, #0x4E20                     @ r7 = 20000 status polls (v2.05 0x08023F8C)
     movs    r0, #0x200
     str     r0, [sp]                        @ block length 0x200 (5th argument)
@@ -359,6 +460,8 @@ FUNC disk_read
     cmp     r7, #0                          @ 0x08023FAA: kept although subs set the flags, so that one poll takes the
                                             @ v2.05 instruction count and the number of CMD13 commands per sector is v2.05's
     bne     .Ldr_poll                       @ at most 20000 polls (0x08023FAC)
+    movw    r0, #0x101
+    bl      sd_dg_note                      @ diagnosis: read, no transfer state
     movs    r0, #2                          @ timeout: RES_ERROR
     b       .Ldr_ret
     @ OF-59: the card has sent the block; wait for the SDIO data end and the DMA end, or an SDIO error (v2.05 takes the
@@ -367,12 +470,13 @@ FUNC disk_read
     movw    r7, #0x4E20                     @ at most 20000 polls
 1:  ldr     r0, =sd_transfer_error
     ldrb    r0, [r0]
-    cbnz    r0, .Ldr_err                    @ CRC fail, timeout, overrun or start bit error: the data is not valid
+    cmp     r0, #0
+    bne     .Ldr_flag                       @ CRC fail, timeout, overrun or start bit error: the data is not valid
     ldr     r0, =(SDIO_BASE + SDIO_STA)
     ldr     r0, [r0]
     movw    r1, #0x23a
     tst     r0, r1
-    bne     .Ldr_err                        @ the same errors flagged in SDIO_STA (the handler serves DATAEND first and then
+    bne     .Ldr_flag                       @ the same errors flagged in SDIO_STA (the handler serves DATAEND first and then
                                             @ masks all sources, so an error flagged with DATAEND appears only here)
     ldr     r0, =sd_transfer_end
     ldr     r0, [r0]
@@ -382,6 +486,24 @@ FUNC disk_read
     bne     .Ldr_ok                         @ both ends seen: the block is in the buffer
     subs    r7, r7, #1
     bne     1b
+    @ the end wait ran out without an error: record the state, then take the block if the hardware counters show it
+    @ complete: SDIO_DCOUNT = 0 (every byte received, RM0038 29.9.10) and DMA2 channel 4 CNDTR = 0 (every word moved to
+    @ the buffer, RM0038 11.4.4), no data error flag in SDIO_STA.  On a meter this wait ran out with SDIO_STA = 0 and
+    @ no error code (2026-11-04) while the file read back on a computer was intact.
+    bl      sd_dg_end_state
+    cbz     r0, .Ldr_ok_recov
+    movw    r0, #0x103
+    bl      sd_dg_note                      @ diagnosis: read, data end or DMA end not seen within the polls
+    b       .Ldr_err
+.Ldr_ok_recov:
+    ldr     r1, =sd_dg_recov
+    ldrh    r0, [r1]
+    adds    r0, r0, #1
+    strh    r0, [r1]
+    b       .Ldr_ok
+.Ldr_flag:
+    movw    r0, #0x102
+    bl      sd_dg_note                      @ diagnosis: read, SDIO error
 .Ldr_err:
     movs    r0, #1                          @ RES_ERROR
     b       .Ldr_ret
@@ -401,7 +523,8 @@ ENDFUNC disk_read
 @ -----------------------------------------------------------------------------
 @ disk_write - write r3 sectors to the SD card (FatFs disk_write)
 @ Replaces  : 0x08023FB8 FUN_08023FB8 (v2.05), called by fat_move_window, fat_f_read, fat_f_write, fat_f_sync, fat_f_lseek, fat_sync_fs
-@ In        : r0 = drive, r1 = buffer, r2 = first sector number, r3 = sector count (u8)
+@ In        : r0 = drive, r1 = buffer, r2 = first sector number, r3 = sector count (strict image: u8, as the BYTE of
+@             FatFs R0.08a; production image: the UINT of FatFs R0.16, IMP-29)
 @ Out       : r0 = 0 ok, 2 the card did not return to the transfer state within 20000 CMD13 polls, 1 (RES_ERROR) the block was
 @             rejected (OF-59)
 @ Clobbers  : r0-r3, flags (v2.05 regeffects.txt; r4-r11 preserved)
@@ -430,7 +553,6 @@ FUNC disk_write
     movs    r7, r0                          @ 08023FD0 r7 = r0
     @ loop over the sectors: buffer offset 512 * i, 64-bit byte address (first sector + i) * 512
 .Ldisk_write_3FD2:                      @ v2.05 0x08023FD2, reached from 0x08024026
-    uxtb    r6, r6                          @ 08023FD2 r6 = u8(r6)
     cmp     r7, r6                          @ 08023FD4 compare r7 with r6
     bhs     .Ldisk_write_4028               @ 08023FD6 if (r7 >=u r6) goto 0x8024028
     mov.w   r0, #0x200                      @ 08023FD8 r0 = 0x200
@@ -452,6 +574,8 @@ FUNC disk_write
     bl      sd_write_blocks                 @ 08024000 call sd_write_blocks
     @ wait for the end of the transfer, send CMD12
     bl      sd_wait_write                   @ 08024004 call sd_wait_write
+    ldr     r1, =sd_dg_wait
+    strb    r0, [r1]                        @ diagnosis: result of the wait (4 = ran out of polls)
     ldr     r1, =sd_transfer_error
     ldrb    r1, [r1]
     orrs    r0, r0, r1
@@ -467,11 +591,20 @@ FUNC disk_write
     subs.w  r9, r9, #1                      @ 08024016 r9 = r9 - 1
     cmp.w   r9, #0                          @ 0802401A compare r9 with 0
     bne     .Ldisk_write_400E               @ 0802401E if (r9 != 0) goto 0x802400E
+    movw    r0, #0x201
+    bl      sd_dg_note                      @ diagnosis: write, no transfer state
     movs    r0, #2                          @ 08024020 r0 = 2
     b       .Ldisk_write_402A               @ 08024022 goto 0x802402A
 .Ldisk_write_4024:                      @ v2.05 0x08024024, reached from 0x08024014
     ldr     r0, [sp, #8]
     cbz     r0, 1f
+    ldr     r0, =sd_dg_wait
+    ldrb    r0, [r0]
+    cmp     r0, #0
+    ite     ne
+    movwne  r0, #0x202                      @ diagnosis: write, sd_wait_write ran out of polls or CMD12 failed
+    movweq  r0, #0x203                      @ diagnosis: write, SDIO error code
+    bl      sd_dg_note
     movs    r0, #1                          @ OF-59: the block was not written: RES_ERROR
     b       .Ldisk_write_402A
 1:  adds    r7, r7, #1                      @ 08024024 r7 = r7 + 1
@@ -512,7 +645,6 @@ FUNC get_fattime
     subs    r0, r2, #1
     cmp     r0, #30
     bhi     .Lgft_none                      @ day not 1..31
-    .if LOOP_V205 == 0
     ldrb    r0, [r3, #0]
     cmp     r0, #99
     bhi     .Lgft_none                      @ CF-04: year not 0..99 (would carry into the 7-bit FAT year past 2107)
@@ -525,7 +657,6 @@ FUNC get_fattime
     ldrb    r0, [r3, #5]
     cmp     r0, #59
     bhi     .Lgft_none                      @ CF-04: second not 0..59
-    .endif
     ldrb    r0, [r3, #0]                    @ year from 2000
     adds    r0, r0, #20                     @ from 1980
     lsls    r0, r0, #9

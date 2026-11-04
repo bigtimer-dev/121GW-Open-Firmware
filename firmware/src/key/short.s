@@ -171,12 +171,10 @@ FUNC handle_pg8_15_short_press
     uxtb r0, r0                         @ 08014D36
     cmp r0, #0                          @ 08014D38
     bne .Lsh_refuse_beep                @ 08014D3A
-    .if LOOP_V205 == 0
     ldr r0, =lt_on
     ldrb r0, [r0]
     cmp r0, #0
     bne .Lsh_refuse_beep                @ IMP-20: the range is frozen while the limit test is on
-    .endif
     ldr r0, =minmax_state               @ 08014D3C
     ldrb r0, [r0]                       @ 08014D40
     cmp r0, #0                          @ 08014D42
@@ -435,12 +433,10 @@ FUNC handle_pg8_15_short_press
 @ Second press: auto-hold (stage 2), or hold off in FREQ / PULSE / DUTY / CAP and with MIN/MAX.  Third press: off
 @ reached from 08014C60 beq (equal / zero) after cmp r0, #0x20
 .Lsh_key_hold_:
-    .if LOOP_V205 == 0
     ldr r0, =lt_on
     ldrb r0, [r0]
     cmp r0, #0
     bne .Lsh_refuse_beep                @ CF-01: HOLD freezes / restores the range, refused while the limit test is on
-    .endif
     ldr r0, =key_logging                @ 08014F04
     ldrb r0, [r0]                       @ 08014F08
     ldr r1, =key_mem_view               @ 08014F0A
@@ -675,12 +671,10 @@ FUNC handle_pg8_15_short_press
 @ not in LowZ (refused there).  Skipped while the overload latch is set and REL is off
 @ reached from 08015096 beq (equal / zero) after cmp r0, #0
 .Lsh_rel_toggle:
-    .if LOOP_V205 == 0
     ldr r0, =lt_on
     ldrb r0, [r0]
     cmp r0, #0
     bne .Lsh_refuse_beep                @ CF-01: REL freezes / restores the range and changes D, refused during the limit test
-    .endif
     ldr r0, =meter_mode                 @ 080150D2
     ldrb r0, [r0]                       @ 080150D6
     cmp r0, #0                          @ 080150D8 mode 0 LowZ
@@ -919,12 +913,10 @@ FUNC handle_pg8_15_short_press
 @ only in ACV without AC+DC and in ACmV
 @ reached from 08015274 beq (equal / zero) after cmp r0, #0
 .Lsh_peak_toggle:
-    .if LOOP_V205 == 0
     ldr r0, =lt_on
     ldrb r0, [r0]
     cmp r0, #0
     bne .Lsh_peak_refuse                @ CF-01: PEAK freezes / unfreezes the range, refused while the limit test is on
-    .endif
     ldr r0, =meter_mode                 @ 080152B4
     ldrb r0, [r0]                       @ 080152B8
     cmp r0, #2                          @ 080152BA mode 2 ACV
@@ -1053,13 +1045,11 @@ FUNC handle_pg8_15_short_press
     b .Lsh_end                          @ 0801539A
 @ reached from 08015394 beq (equal / zero) after cmp r0, #0
 .Lsh_0801539C:
-    .if LOOP_V205 == 0
     ldr r0, =lt_on
     ldrb r0, [r0]
     cmp r0, #0
     bne .Lsh_minmax_refuse              @ CF-01: MIN/MAX on freezes the range, refused while the limit test is on (the test
                                         @ cannot be on together with MIN/MAX, so this press would switch it on)
-    .endif
     bl fn_080158D4                      @ 0801539C
     bl fn_0800EE50                      @ 080153A0
 @ reached from 08014C70 b (jump)

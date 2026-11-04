@@ -13,9 +13,8 @@ Open [the latest release](https://github.com/zombu4/121GW-Open-Firmware/releases
 
 ![which file to download](docs/start/01-download.svg)
 
-Not sure which Mac you have? Apple menu (top left) → **About This Mac**:
-
-![Apple chip or Intel](docs/start/02-mac-chip.svg)
+The Mac version needs a Mac with an Apple chip (M1 or later; Apple menu → **About This Mac** shows "Chip Apple …").
+There is no version for Macs with an Intel processor.
 
 ## 2a. Mac
 
@@ -79,7 +78,8 @@ On Linux the emulator opens in your web browser; stop it with the **Quit emulato
 ## 3. Use it
 
 - Click the keys and turn the dial on the drawn meter; set what is connected to the probes under **Input stimulus**.
-- **Firmware:** the two builds of this project are included (choose in the **firmware** list). To try your own
+- **Firmware:** the two builds of this project are downloaded from GitHub the first time you choose them in the
+  **firmware** list (fast at the first start), then kept on the computer, so this needs the internet once. To try your own
   `EEVBlog.bin` click **Load firmware file…** or drag the file onto the window. The meter restarts with it; a file
   that is not a 121GW firmware is refused and the reason is shown.
 
@@ -94,5 +94,5 @@ writes to a real meter.
 
 - **Windows: no window, the browser opens instead** — the computer lacks Microsoft Edge WebView2. It still works in
   the browser; for the window install "WebView2 Runtime" from microsoft.com (free).
-- **Something else:** open an issue on GitHub with your system (for example "Windows 11", "macOS 15 Intel",
+- **Something else:** open an issue on GitHub with your system (for example "Windows 11", "macOS 15",
   "Ubuntu 24.04") and what you saw.

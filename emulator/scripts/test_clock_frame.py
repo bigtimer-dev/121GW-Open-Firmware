@@ -1,8 +1,8 @@
 """Bluetooth set-clock frame (as apps send it): 0xF8 + 7 ASCII hex pairs, upper case: year - 2000, month, day, hour,
-minute, second and the XOR of those six.  Same frame and rules as v2.05 (firmware/src/ble/commands.s fn_0800C332):
-a bad checksum is ignored; a good frame is echoed and applied to the clock; only the first good frame after power-on
-or after Bluetooth is switched on (PEAK long) is applied, later ones are echoed and ignored until Bluetooth is
-switched off and on.  The SETUP year / date / time pages must show the new time.
+minute, second and the XOR of those six (firmware/src/ble/commands.s fn_0800C332): a bad checksum is ignored; a good
+frame is echoed and applied to the clock, every time (IMP-31, v1.0.1; v2.05 applied only the first good frame after
+Bluetooth was switched on).  The SETUP year / date / time pages must show the new time.  CF-06: a frame with a good
+checksum but a date or time outside the calendar (month 13, day 0, hour 24, minute 60) is neither echoed nor applied.
 
     python -I emulator/scripts/test_clock_frame.py [image]   default firmware/build/EEVBlog.bin
 """
@@ -74,14 +74,22 @@ check('SETUP time page shows 13-45 (separator blinks)', t.replace(' ', '-') == '
 page(e, 0)
 e.usart2.rx_feed(frame(2032, 1, 1, 0, 0, 0))
 e.advance(2.0)
-check('a second frame in the same BT session is ignored (v2.05 rule)', rtc(e)[:3] == (31, 7, 9), str(rtc(e)))
+check('a second frame in the same BT session is applied too (IMP-31)', rtc(e)[:3] == (32, 1, 1), str(rtc(e)))
 T.long_press(e, 'PEAK')                             # BT off
 e.advance(0.5)
 T.long_press(e, 'PEAK')                             # BT on again
 e.advance(1.0)
-e.usart2.rx_feed(frame(2032, 1, 1, 0, 0, 0))
+e.usart2.rx_feed(frame(2033, 2, 3, 4, 5, 6))
 e.advance(2.0)
-check('after BT off/on a new frame is applied', rtc(e)[:3] == (32, 1, 1), str(rtc(e)))
+check('after BT off/on a new frame is applied', rtc(e)[:3] == (33, 2, 3), str(rtc(e)))
+for bad in ((2034, 13, 1, 0, 0, 0), (2034, 1, 0, 0, 0, 0), (2034, 1, 1, 24, 0, 0), (2034, 1, 1, 0, 60, 0)):
+    f = frame(*bad)
+    start = len(e.ble_rx)
+    e.usart2.rx_feed(f)
+    e.advance(1.5)
+    echo = bytes(b & 0xFF for b in e.ble_rx[start:])
+    check('CF-06 out-of-calendar frame %s refused: no echo, clock unchanged' % (bad,),
+          f not in echo and rtc(e)[:3] == (33, 2, 3), str(rtc(e)))
 print('RESULT', 'ALL PASS' if not fails else 'FAIL: ' + ', '.join(fails), flush=True)
 sys.stdout.flush()
 os._exit(1 if fails else 0)

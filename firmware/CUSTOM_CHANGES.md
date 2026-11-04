@@ -1,14 +1,18 @@
-# Custom build C-0.96
+# Custom build C-1.02
 
-Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v0.9.6 (commit a79eb20, merged), the
-fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-0.96`** at power-on.
+Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.0.2 (main at commit d6651ed,
+merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.02`** at
+power-on and answers the Bluetooth version request with it.
 
 History: C-0.94 (CF-01..CF-04 on v0.9.4, commit 3e7953d) was flashed on a real 121GW on 2026-11-03: it boots, shows
-`C-0.94` and measures. C-0.96 merges zombu4's v0.9.5 / v0.9.6 (IMP-22 auto-hold at 0, IMP-23 DCV window, IMP-24 4-20 mA
-loop view, IMP-25 PT100 / PT1000 view, IMP-26 thermocouples N / R / S) and adds CF-05.
+`C-0.94` and measures. C-0.96 merged zombu4's v0.9.5 / v0.9.6 (auto-hold at 0, DCV window, 4-20 mA loop view, PT100 /
+PT1000 view, thermocouples N / R / S) and added CF-05. C-1.02 merges v0.9.7 .. v1.0.2 (IMP-27 battery trim, OF-30 and
+LowZ bargraph fixes, IMP-28 firmware file over Bluetooth to the SD card, IMP-29 FatFs R0.16, IMP-30 version over
+Bluetooth, IMP-31 every set-clock frame applied) and adds CF-06.
 
-Every firmware change is in the production (fast) image only (`.if LOOP_V205 == 0`). The strict `1_like_v2.05` image of
-this tree is byte-identical to zombu4's v0.9.6 release (SHA-256 `239ebadd…ac0c`, unchanged since v0.9.4).
+Since v1.0.0 zombu4's main builds only the fast image (the like-v2.05 build moved to his branch `like-v2.05`, and the
+`LOOP_V205` switches are gone from the sources); the custom changes, which were inside `.if LOOP_V205 == 0` blocks, are
+now unconditional, like the rest of the fast build.
 
 ## Firmware fixes
 
@@ -69,6 +73,17 @@ larger than about 4.8 sigma is still taken at once (1 V -> 3 V with 60 counts of
 value). A step smaller than that is averaged as in v2.05. A range or mode change resets the estimate.
 `test_custom_dcv_noise.py` checks both.
 
+### CF-06 Set-clock frame range check (ble/commands.s, `fn_0800C332`)
+
+A set-clock frame (`F8` + seven hex pairs) with a good checksum was echoed and its six values were converted to BCD and
+written to the NJU6350 clock chip without any range check (v2.05 code): month 13, day 0, hour 24 or 99, minute 60 went
+into the chip as they came, and from there into the SETUP pages and, through `get_fattime`, toward the SD file times
+(CF-04 stops it there). v2.05 applied only the first frame per Bluetooth-on; zombu4's IMP-31 (v1.0.1) applies every frame,
+so a confused or hostile Bluetooth peer can now write such values at will. Now a frame with year > 99, month not 1..12,
+day not 1..31, hour > 23 or minute / second > 59 is refused like a bad checksum: not echoed, not written. Valid frames
+behave as in v1.0.2 (echoed and applied every time). `test_clock_frame.py` sends four such frames; v1.0.2 writes them
+to the clock.
+
 ## Emulator fixes (emulator/app.py, emulator/ui/server.py, emulator/API.md)
 
 - E-01 `{"speed": "nan"}` / `"inf"` was accepted and stopped the emulation thread (`int(NaN)` in the run loop); 0 or
@@ -93,37 +108,30 @@ value). A step smaller than that is averaged as in v2.05. A range or mode change
 ## Verification
 
 Toolchain: GNU binutils 2.46.0.20260210 (as zombu4's CI), unicorn 2.1.4 / capstone 5.0.9 for the emulator. The untouched
-v0.9.6 tree rebuilds byte-identical to zombu4's v0.9.6 release (fast `b7f641f4…`, strict `239ebadd…`), as v0.9.4 did,
-so the toolchain matches.
+v1.0.2 tree (d6651ed) rebuilds byte-identical to zombu4's v1.0.2 release (`690a3825…9905`), so the toolchain matches.
 
-| Check | Custom C-0.96 | v0.9.6 unmodified |
+| Check | Custom C-1.02 | v1.0.2 unmodified |
 |---|---|---|
-| `make check-ci` (check_image, check_hy, check_gpio), both builds | PASS | PASS |
-| Strict image vs zombu4's release | byte-identical | (is the release) |
-| zombu4's emulator suite, 20 scripts (incl. his new `test_autohold_zero`, `test_dcv_fast`, `test_loop_percent`, `test_rtd`, `test_statistics`), about 466 checks | all pass | not rerun here (zombu4's CI) |
-| `test_dcv_fast.py` (step, noise at 8 counts, range change, update rate) | all pass with `--ref` v0.9.4; with `--ref` v0.9.6 the same rate, noise and range-change time as v0.9.6 | (the reference) |
-| `test_custom_dcv_noise.py` (new, CF-05: noise at 60 / 120 counts, a 1 V -> 3 V step under noise) | all pass (display sd 1.10 x sigma/4, step shown after 75 ms) | the 2 noise checks fail (1.95 x, 2.50 x) |
-| `test_custom_fixes.py` (CF-01 keys / switch-on / PEAK, CF-02, CF-03, 26 checks) | all pass | 14 fail (the bugs, as on v0.9.4) |
+| `make check-ci` (check_image, check_hy, check_gpio) | PASS | PASS |
+| Image vs zombu4's release | (custom) | byte-identical |
+| The whole emulator suite, 30 scripts (zombu4's, incl. his new `test_battery_trim`, `test_ble_version`, `test_bt_upload`, `test_lowz_spike`, `test_sd_large_card`, plus this fork's) | all pass | zombu4's: his CI |
+| `test_custom_fixes.py` (CF-01 keys / switch-on / PEAK, CF-02, CF-03, 26 checks) | all pass | 14 fail (the bugs are still there) |
 | `test_custom_fattime.py` (`get_fattime` by direct execution, 14 calendar inputs, CF-04) | all pass | 6 fail |
-| `test_custom_server.py` (emulator server / command checks, 20 cases, E-01..E-05) | all pass | n/a |
-| `test_clock_frame.py` (Bluetooth set-clock frame 0xF8: checksum, echo, clock and SETUP pages, once per BT on) | all pass | not run |
-| Bluetooth frames through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s decoder: 2 and 20 frames/s, every SETUP page incl. `LP` / `Pt`, overload, remote keys, the loop / RTD views, thermocouple N | all decoded, keys as expected | not run |
-| The app's own loop / RTD view (it replays the firmware's arithmetic) against the meter's LCD, 77 points | identical digits | n/a |
-| Power-on splash | `C-0.96` | `F-0.96` |
+| `test_custom_dcv_noise.py` (CF-05: noise at 60 / 120 counts, a 1 V -> 3 V step under noise) | all pass | the 2 noise checks fail (1.95 x, 2.50 x) |
+| `test_clock_frame.py` (set-clock frame 0xF8: checksum, echo, clock and SETUP pages, every frame applied (IMP-31), CF-06 four out-of-calendar frames) | all pass | the 4 CF-06 checks fail: the clock takes the values |
+| `test_custom_server.py` (emulator server / command checks, E-01..E-05) | all pass | n/a |
+| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.02`, mode / page / HOLD / REL unchanged | `F-1.02` |
+| Same request sent to C-0.96 (older firmware) | echoed, no answer, nothing changed | n/a |
+| Power-on splash | `C-1.02` | `F-1.02` |
 
 Run them from the repository root with Python 3, `unicorn` and `capstone` (as the emulator), after a build
 (`firmware/build/EEVBlog.bin`, map next to it). Give parallel emulator runs separate `TMPDIR`s: `test_backlight_timer.make` writes a
 fixed `$TMPDIR/bl_test_eeprom.bin`, so runs that share it overwrite each other's EEPROM.
 
-Two of zombu4's scripts still expect the SETUP page order from before the pages `rEL`, `dSP` and `CL` were added:
-`test_ble_rate.py` expects item 0 after `bt` (the order since v0.9.4 is `bt` -> `rEL`, item 22) and
-`test_display_level.py` item 0 after `dSP` (in DCV `dSP` -> `CL`, item 25). This fork corrects that one check in each
-(as in `USER_GUIDE.md`); nothing else in them differs from zombu4's v0.9.6. In v0.9.6 zombu4 fixed `test_tc_type.py`
-himself (the J and T types were never selected before), and the merge takes his version.
-
 The emulator runs the real image instruction by instruction with modelled peripherals, but it is not the meter: analog
 settling, real key bounce, the battery, the LCD glass and the real SD cards are models or absent. Run the checks of
 `HARDWARE_TEST.md` and the first checks of the main `README.md` on the meter.
 
-SHA-256 of the custom fast image C-0.96: `6f090b5d8d00b039aa2de4ad1338eede998c86d1d3d32a8ea88a0fdec3840497` (152880 bytes).
-C-0.94 (tag `custom-c0.94`): `355c6ff0485987bd781f943a971da6e311018afdea8976f156ccc34cf2842580` (148228 bytes).
+SHA-256 of the custom fast image C-1.02: `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes).
+Earlier: C-0.96 (tag `custom-c0.96`) `6f090b5d8d00b039aa2de4ad1338eede998c86d1d3d32a8ea88a0fdec3840497` (152880 bytes),
+C-0.94 (tag `custom-c0.94`) `355c6ff0485987bd781f943a971da6e311018afdea8976f156ccc34cf2842580` (148228 bytes).

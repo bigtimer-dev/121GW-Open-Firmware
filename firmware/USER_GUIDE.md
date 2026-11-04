@@ -2,12 +2,13 @@
 
 Everything on this page is in the **fast build** (`2_fast/EEVBlog.bin`). The `1_like_v2.05` build behaves like the
 original firmware apart from the defect fixes and has none of these features. At power-on the fast build shows its
-version, `F-0.96` (the release number, v0.9.6); the `1_like_v2.05` build shows `V-2.05` like the original.
+version, `F-1.00` (the release number, v1.0.0); the `1_like_v2.05` build shows `V-2.05` like the original.
 
-**Custom build `C-0.96`.** This tree is the fast build v0.9.6 with the fixes CF-01..CF-05 (`CUSTOM_CHANGES.md` next to
-this guide); it shows `C-0.96` at power-on. Everything below applies to it; the limit test differs as marked. One more
-difference has no page of its own: on a noisy DC voltage (ripple, a noisy supply) the DCV reading is as steady as on the
-original firmware (CF-05), while on a clean source a step still shows at once.
+**Custom build `C-1.02`.** This tree is the fast build v1.0.2 with the fixes CF-01..CF-06 (`CUSTOM_CHANGES.md` next to
+this guide); it shows `C-1.02` at power-on. Everything below applies to it; the limit test differs as marked. Two more
+differences have no page of their own: on a noisy DC voltage (ripple, a noisy supply) the DCV reading is as steady as on
+the original firmware (CF-05), while on a clean source a step still shows at once; and a Bluetooth set-clock frame with
+an impossible date or time is refused (CF-06).
 
 All settings are stored in bytes of the data EEPROM that the original firmware never uses. Calibration, serial number
 and the original settings are not touched, and a meter flashed back to v2.05 simply ignores the new bytes.
@@ -27,7 +28,7 @@ setting is kept over a power-off.
 
 The new pages come after the original SETUP pages, in this order:
 
-`bL` (backlight) → `bt` (Bluetooth speed) → `rEL` (REL mode) → `tc` (thermocouple type, TEMP only) → `dSP` (display
+`bL` (backlight) → `bt` (Bluetooth speed) → `Ld` (firmware over Bluetooth) → `rEL` (REL mode) → `tc` (thermocouple type, TEMP only) → `dSP` (display
 level) → `bH` (continuity hold, BEEP only) → `LP` (4–20 mA view, DC mA only) → `Pt` (PT100 / PT1000 view, Ω only) → `CL` (12 / 24-hour clock) → `Lt`, `Lo`, `HI` (limit test; the verdict page
 while the test is on) → `tr`, `Ch` (logging trigger) → back to the first page (while MIN/MAX is on, the statistics pages
 `n` and `Sd` and the time pages `tHI` and `tLo` come before it)
@@ -119,7 +120,7 @@ Tip: `dSP 2` while adjusting a trimmer or watching something warm up or charge; 
 - While the test is on the range stays fixed (RANGE is refused); turning the dial ends the test. The limits are kept
   until the meter is switched off.
 - Switching on is refused (refusal beep) until both limits are captured in the present function and range.
-- Custom build (`C-0.96`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
+- Custom build (`C-1.02`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
   on those keys are refused (refusal beep); switch the test off first. A capture while the display shows `OFL` is refused
   (nothing is stored). After the test, and after turning the dial, the range lock is what it should be (auto, or the
   single DIODE range).
@@ -153,6 +154,29 @@ stays short and readable.
   -25.00 %. Logging, Bluetooth and MIN/MAX keep the current in mA.
 
 Tip: with `L4-20` a sensor's output reads directly in percent of its range, for example a pressure transmitter at 63.50 %.
+
+## Firmware update over Bluetooth
+
+- **On the meter:** Bluetooth on (hold PEAK), then press SETUP until the page `Ld-bt` (right after `bt`).
+- **On the computer:** `python emulator/tools/bt_upload.py EEVBlog.bin` (Python 3 with the package `bleak`: `pip install
+  bleak`). The meter shows the progress in percent (`Ld 45`), a full image takes a few minutes.
+- **Result:** `Ld oK` means the file is on the card as `EEVBlog.bin` and was read back correctly (the temporary file
+  `BTLOAD.TMP` is deleted). `LdE n` means it was not stored (1 card problem, 2 the file arrived damaged, 3 not a firmware
+  file, 4 the copy failed, 5 the copy reads back differently); start the transfer again or copy the file with a computer.
+  After `LdE 4` or `LdE 5` the card holds either the old `EEVBlog.bin` untouched or none at all (a partly written one is
+  deleted, so the update key sequence then leaves the installed firmware unchanged).
+- **Then update as usual:** switch off, hold HOLD and MEM while switching on, then press SETUP.
+- Logging must be off. The meter keeps measuring during the transfer. Leaving the page stops it; the old `EEVBlog.bin`
+  stays until a new file has arrived complete and checked.
+
+## Battery voltage trim
+
+- **Where:** SETUP page `BAT` (the battery voltage, the page after the temperature unit).
+- **Use:** measure the meter's battery with another meter. Hold SETUP until the page shows `bA` and the voltage with two
+  decimals, press REL (up) or PEAK (down) until it matches (steps of 0.2 %, at most ±10 %), then hold SETUP to save.
+  A short SETUP leaves without saving.
+- **Why:** the battery is measured through two resistors whose tolerance varies from meter to meter by a few percent; the
+  trim corrects your meter. The low-battery symbol then also comes at the right voltage.
 
 ## PT100 / PT1000 temperature sensors (Ω)
 

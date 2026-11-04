@@ -752,7 +752,6 @@ ENDFUNC fn_08019A98
 @ -----------------------------------------------------------------------------
 FUNC fn_0801A854
     push {r4, lr}                            @ 0801A854
-    .if LOOP_V205 == 0
     @ production: the version text of config.inc ("F-0.91"), all five characters written, point 2 as v2.05
     bl fn_0801A81C                           @ clear the shadow, as v2.05
     ldr r1, =v_20007C30                      @ 5-char text buffer
@@ -768,23 +767,6 @@ FUNC fn_0801A854
     strb r0, [r1, #4]
     movs r0, #0
     bl lcd_draw_5char                        @ main display
-    .else
-    movs r4, #205                            @ 0801A856
-    bl fn_0801A81C                           @ 0801A858
-    movs r0, r4                              @ 0801A85C
-    bl fn_0801B090                           @ 0801A85E
-    movs r0, #0                              @ 0801A862
-    bl fn_0801B130                           @ 0801A864
-    movs r0, #86                             @ 0801A868
-    ldr r1, =v_20007C30                      @ 0801A86A &5-char text buffer
-    strb r0, [r1, #0]                        @ 0801A86E
-    movs r0, #45                             @ 0801A870
-    ldr r1, =v_20007C30                      @ 0801A872 &5-char text buffer
-    strb r0, [r1, #1]                        @ 0801A876
-    ldr r1, =v_20007C30                      @ 0801A878 &5-char text buffer
-    movs r0, #0                              @ 0801A87C
-    bl lcd_draw_5char                        @ 0801A87E
-    .endif
     movs r0, #2                              @ 0801A882
     bl fn_0801717E                           @ 0801A884
     movs r0, #1                              @ 0801A888
@@ -797,7 +779,7 @@ ENDFUNC fn_0801A854
 @ -----------------------------------------------------------------------------
 @ ui_blank_draw - draw five spaces or five dashes on the main digits for a ui_blank_req request
 @ Replaces : nothing (new); the v2.05 blank branch 0x08016FE2..0x08017004 is the spaces case
-@ In       : r0 = request value (1 = spaces, 2 = dashes)
+@ In       : r0 = request value (1 = spaces, 2 = dashes, 3 = keep the digits on the glass, OF-30 port correction)
 @ Out      : -
 @ Clobbers : r0-r3, r12, flags
 @ Context  : main only; called from fn_08016E08
@@ -812,6 +794,8 @@ FUNC ui_blank_draw
     ldr r0, =hold_stage2                    @ v2.05 0x08016FEC: with auto-hold stage 2 nothing is drawn
     ldrb r0, [r0]
     cbnz r0, .Lbd_clear_ol                  @ stage 2 set: keep the old digits, only clear OL below
+    cmp r4, #3
+    beq .Lbd_clear_ol                       @ request 3 (OF-30 correction): keep the digits, as auto-hold stage 2 does
     cmp r4, #2
     beq .Lbd_dashes                         @ request 2: dashes
     movs r0, #0                             @ request 1: the v2.05 blank (spaces, main digits, sign cleared)
@@ -825,6 +809,8 @@ FUNC ui_blank_draw
     ldr r1, [r0, #12]                       @ shadow word 3
     bics r1, r1, #0x80                      @ main minus (w3 bit 7) off
     str r1, [r0, #12]
+    movs r0, #0
+    bl fn_0801717E                          @ main decimal point off (the value drawn before left it: "----.-" otherwise)
     movs r0, #0                             @ position flag 0 = main digits 5..9
     bl fn_08019A86                          @ "-----" (string 0x08029288)
 .Lbd_commit:

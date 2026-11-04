@@ -12,10 +12,10 @@ each is added to `EEPROM_MAP.md` 4.1 and `nvm_allow` only with the code that use
 
 ### 1.1 Production image only
 
-Every feature is assembled only when `LOOP_V205 == 0` (`.if LOOP_V205 == 0` around the code, the hooks into v2.05 routines
-and the EEPROM table bits). The strict image (`make LOOP_V205=1`) contains none of them: it is byte-identical to the build
-made before the first feature (checked for IMP-07 by `cmp`), it never reads or writes the port-only EEPROM bytes, and its
-`nvm_allow` table does not allow them (`gen_nvm_allow.py` emits their bits as `mask * (1 - LOOP_V205)`, EMAP 4.1).
+The features are part of the fast build only (branch `main`). The like-v2.05 build (branch `like-v2.05`, `make
+LOOP_V205=1` there) contains none of them: it never reads or writes the port-only EEPROM bytes and its `nvm_allow` table
+does not allow them (EMAP 4.1). Until 2026-11-04 both builds came from the same sources, with every feature inside
+`.if LOOP_V205 == 0`; since then each build has its own branch.
 
 ### 1.2 Keys
 
@@ -266,7 +266,7 @@ changed, ARS 7: "r5/r6 are row-bound ... those rows may not change").
   continuity code and the APO flag only.
 - Constraints: no HY3131 access; absent from the strict image.
 
-### 2.10 Firmware update over Bluetooth
+### 2.10 Firmware update over Bluetooth (implemented, IMP-28)
 - Request (owner, 2026-11-02): update the firmware without taking the SD card out.
 - Facts (bootloader `inputs/binaries/bootloader.bin`, base 0x08000000, disassembly): update mode is entered only by the keys at
   reset (GPIOG IDR 0x40021C10 read at 0x0800486C..0x080048B2: MEM PG11 and HOLD PG13 low, then SETUP PG9 low within the wait
@@ -275,30 +275,93 @@ changed, ARS 7: "r5/r6 are row-bound ... those rows may not change").
   bootloader erases 0x08006000..0x0805FF00 (0x08004B8C) before it reads the file, ignores the erase and `f_read` results, and
   checks only the initial stack pointer of the programmed image (0x08004994..0x080049A0): a truncated file is programmed. It
   never writes below 0x08006000, so a bad image is recovered by a good file and the key sequence.
-- Design: a receive mode in the production image (entry by a key combination to be chosen, shown on the display) takes the
-  image over the Bluetooth link (USART2, 19200 baud, `analysis/ble_packet.md` 1) in numbered chunks with a CRC per chunk and an
-  acknowledgement; a new frame type is needed, because the receive interrupt accepts only F4 and F8 frames (0x08024820). The
-  chunks are written to a temporary file on the card (`fat_f_write`, `src/sd/fat_file.s`); after the last chunk the length and
-  a CRC32 of the whole file are checked against the header sent first, and only then is the file renamed to `EEVBlog.bin`.
-  The meter then asks for the usual update sequence (HOLD+MEM at power-on, SETUP). The application never writes flash.
-- Host side: a sender program (computer Bluetooth; packaged with the emulator) that splits, sends and resends.
-- Verified working on a meter: the official iPhone application connects to the production image and shows live readings
-  (meter to phone direction).
-- Open, measured on a meter first: whether the BLE112 module passes arbitrary bytes from the host to USART2 at the full rate
-  (the official application writes only 5-byte F4 frames, `analysis/ble_packet.md` 7), and the real throughput. The UART bound
-  is 1920 bytes per second (141 124 bytes: 74 s at least); receive is deaf while the card is accessed (`src/ble/usart.s`
-  header), which the acknowledgement covers.
-- Storage: none.
+- Measured on a meter (2026-11-03, `bt_rate` test with the key frame of the unused code 0): the Bluetooth module accepts
+  writes of up to 244 bytes (MTU 247) and passes them to USART2; with v2.05's frame handling about 600 bytes per second
+  arrived (the losses at higher rates were the one-frame-per-pass parser and the 64-byte echo queue, not the radio).
+- What it does: on the SETUP page `Ld` (item 39, after `bt`; shown `Ld-bt`) with Bluetooth on, logging off and outside
+  calibration mode, the meter takes a file from the sender: packets of up to 232 bytes with a CRC-16, each answered
+  (stop and wait, so nothing is in flight while the card is written and the link is deaf, NF-04). The bytes are collected
+  in 8 KiB of log_buf and appended to `BTLOAD.TMP`; at the end the meter checks length and CRC-32 against the announced
+  values and the first two words (initial SP in the RAM, reset vector Thumb inside 0x08006000..0x0805FFFF), only then
+  copies the file to `EEVBlog.bin`, reads the copy back and deletes `BTLOAD.TMP`. The page shows `Ld nn` (percent), `Ld oK` or `LdE n` (1 card,
+  2 length/CRC, 3 not an image, 4 copy failed, 5 copy differs). The application never writes flash; the update itself is
+  the usual key sequence afterwards.
+- Residual risk: a failed copy is repeated from the intact temporary file (3 attempts in all). If every attempt fails,
+  an `EEVBlog.bin` that an attempt had opened for writing is deleted (FatFs R0.16, IMP-29) and the page shows `LdE 4` / `LdE 5`: the bootloader
+  opens `EEVBlog.bin` before it erases anything (0x08004A8A: f_mount, f_open of the name at 0x08004EF4 with FA_READ;
+  a failed open branches to 0x08004982 past the erase and program step 0x080049C2), so with no file the key sequence
+  leaves the installed firmware as it is.  Only a power loss while the copy is written leaves an incomplete
+  `EEVBlog.bin`, which the bootloader would program if the key sequence is used.  After a checked copy `BTLOAD.TMP` is
+  deleted; the card needs free space for the file twice during the transfer.  Recovery as for any bad file: a good
+  `EEVBlog.bin` and the key sequence (the bootloader is never written).
+- How: `ble/bft.s` (protocol in its header), hooks in `ble/usart.s` (the USART2 handler gives every byte to the ring of
+  bft.s while the page owns the link; no status frames then), `sys/main.s` (bft_poll every pass) and `set/setup.s`.
+- Host side: `emulator/tools/bt_upload.py` (Python, needs the package bleak) with the packet code in
+  `emulator/tools/btft.py`; `emulator/scripts/test_bt_upload.py` runs the transfer against the emulated meter and card.
+- Verified working on a meter (2026-11-04): the 155 kB production image sent with `bt_upload.py` in 159 s (about
+  1060 bytes per second over the link), checked and written as `EEVBlog.bin`.  The way there found an SD driver
+  problem (ORIGINAL_FIRMWARE_ISSUES.md OF-59, port correction): reads whose "data end" notification was missed.
+- Storage: none (EEPROM untouched).
 
-### 2.11 Bluetooth viewer for computers
-- Request (owner, 2026-11-02): the official phone application connects but draws badly (glitches, colours, unreadable
-  text); a viewer of our own.
-- Design: a desktop program (macOS, Windows, Linux) that connects to the meter over the computer's Bluetooth LE, decodes
-  the status frame (`analysis/ble_packet.md` 3) and draws the display with the emulator's LCD renderer
-  (`emulator/ui/assets/lcd`), so the picture is the meter's own segments. Additions: CSV logging, a trend graph,
-  statistics. It is the host side of 2.10 as well (sender of a firmware image).
-- Open: the BLE112's GATT service and characteristic that carry the frames (to be read from a meter with a BLE scanner);
-  no firmware change is needed for viewing.
+### 2.11 Meter companion program (stages 1 to 5 implemented, branch companion; owner go 2026-11-04)
+- Request (owner, 2026-11-02 and 2026-11-04): the official phone application connects but draws badly; a program of our
+  own for Windows, macOS and Linux that shows the meter live, records, and updates the firmware, with a design of its
+  own ("sleek, functional, not the run-of-the-mill look").
+- Where (owner decision 2026-11-04): a separate program on its own branch `companion` (orphan branch: only the
+  companion's code, its own CI, installers and releases tagged `companion-vA.B.C`); the emulator stays on `main`.
+  Every package bundles everything it needs (Python, the Bluetooth library, the UI): nothing to install.  What the
+  operating system provides is used as it is: the macOS Bluetooth permission prompt, BlueZ on Linux.
+- Link (facts, `emulator/tools/bt_upload.py`, working on a meter 2026-11-04): Bluetooth LE service
+  0bd51666-e7cb-469b-8e4d-2742f1ba77cc, characteristic e7add780-b042-4876-aae1-112855353cc1 (notify: the meter's
+  USART2 bytes; write: bytes to the meter).  The status frame is the 19-byte frame of `analysis/ble_packet.md` 3
+  (start 0xF2, XOR checksum); it carries mode, range, value, sub display, bargraph and symbols, no firmware version.
+- Stages:
+  1. Live view: scan, connect, decode the status frame into the reading as the meter shows it (decimal point and unit
+     from the mode and range, the sub display, bargraph, symbols), connection state.  No firmware change.
+  2. Recording: CSV file of the decoded readings with time stamps while connected; trend graph; min / max / mean /
+     count.  No firmware change.
+  3. Firmware version (implemented in F-1.02, IMP-30; emulator test test_ble_version.py; verified working on a meter with the F-1.01 test build): a key frame with the unused code 0x90 (`F4 39 30 39 30`; fn_0800C470
+     decodes '9','0' to 0x90, the pairs are equal) is echoed as every key frame and then answered with a version frame
+     `F6 c0 c1 c2 c3 c4 x` (FW_VER_C0..C4 of config.inc, x = XOR of the six bytes before it), queued with
+     ble_tx_queue_put after the echo.  The answer is made in fn_0800C332 and 0x90 is not handed to the key routine: a
+     remote key would restart the backlight countdown and clear a pending SdExx / setup message (keys.s:831-839).
+     Host rule: echo and F6 = fast build with that version; echo without F6 within the timeout = v2.05 or the like-v2.05
+     build (both echo 0x90, analysis/ble_packet.md 6); neither = the link is not ready (page Ld owns it, the system clock
+     is HSE during an SD access, the queue was full) and the host asks again later.  Version characters: one digit each
+     (tag vA.B.C = "F-A.BC", checked by check_fw_version.py), so A, B, C stay 0..9.
+  4. Update (implemented; verified working on a meter 2026-11-04: F-1.01 to F-1.02 through the companion): when a
+     newer fast release exists than the version the meter reports (emu/fetch.py looks it up), the program
+     shows it and offers "Update now" or "Later".  Update now = the transfer of 2.10; the user brings the meter to the
+     SETUP page Ld and afterwards does the bootloader key sequence: the program never sends key frames for it (a remote
+     SETUP is refused while logging, starts an offset calibration in calibration mode, and the page shown cannot be told
+     from the status frame for every item; on Ld remote keys no longer arrive).  Later = remind at the next connection.
+  5. Time sync (implemented; verified working on a meter 2026-11-04; owner request 2026-11-04): a button that takes the time from an NTP server (default pool.ntp.org,
+     configurable, e.g. the owner's 10.0.10.123) and sends the set-clock frame `F8` with year 0..99, month, day, hour,
+     minute, second as plain numbers (the firmware converts them to BCD: rtc_write_reg calls the binary-to-BCD routine,
+     rtc/nju6350.s) and their XOR.  IMP-31 (F-1.02): the fast firmware applies every valid frame; v2.05 only the first one
+     after the Bluetooth toggle.  Emulator test test_ble_clock.py.
+  6. SD card file manager and synced folder (owner request 2026-11-04; owner chose the synced folder over a drive mount,
+     which would need macFUSE / WinFsp / FUSE and is slow for file browsers at about 1 KB/s): list, download, delete and
+     rename files, and a "sync" that copies new or changed files of the card into a normal folder on the computer.
+     Firmware change (fast build): the transfer protocol of 2.10 gains list / read / delete / rename requests, using
+     FatFs R0.16 (f_opendir / f_readdir / f_read / f_unlink / f_rename); only while logging is off and outside
+     calibration mode, as 2.10.  Speed about 1 KB/s (measured for 2.10: 155 kB in 159 to 172 s).
+- Decoding rules (plan review 2026-11-04): the decimal point and unit prefix per mode and range are not in the frame
+  (only the range index): taken from the firmware's range tables, not from the official app (they differ for modes 12,
+  13, 14, 18, 23, ble_packet.md 8); the magnitude has 18 bits (bytes [5] bits 7..6, [7], [8]); the bar count [14] is
+  clamped to 25 (OF-65: 45..55 on an overload); frames arrive split over several notifications and are reassembled by
+  start byte, length (F2 19, F4 5, F8 15, F6 7, bft B5 5B) and checksum, with a resync after a frame abandoned under NF-04;
+  no frames come while the main digits are blank and while page Ld is shown.
+- Safety of the local program: every request that sends anything to the meter (version request, clock, file operations,
+  firmware transfer) needs a custom request header, so no web page can trigger it; one Bluetooth central at a time (not
+  together with the phone application or another bridge); reconnect after the meter's auto power-off.
+- Packaging: bleak and its platform backends bundled (hidden imports), the macOS Bluetooth usage text in Info.plist.
+- Design (owner choice "bench instrument"): matte black, the 121GW yellow as the only accent, hairlines instead of
+  boxes, large tabular digits for the reading, oscilloscope-style grid for the trend graph; dense, no rounded cards, no
+  shadows, no decorative gradients; system fonts only (works offline).
+- Platform notes: the Bluetooth library is bleak (CoreBluetooth on macOS, WinRT on Windows, BlueZ on Linux); the macOS
+  application needs the Bluetooth usage text in its Info.plist; only macOS can be tested against a meter here, Windows and
+  Linux connections need a tester with Bluetooth there.
 
 ### 2.12 12-hour clock (implemented, IMP-13; verified working on a meter)
 - Where: SETUP page `CL`, item 25, the last port page (after `dSP`): `CL 24` (v2.05, default) or `CL 12`.
@@ -351,6 +414,38 @@ changed, ARS 7: "r5/r6 are row-bound ... those rows may not change").
   or in calibration mode; HOLD freezes the display; an overload shows OFL.
 - Storage: one byte 0x029 (0 = off); a value above 2 reads as 0 (EEPROM_MAP.md 4.1).
 
+### 2.16 Battery voltage trim (implemented, IMP-27)
+- Request (GitHub issue 2, 2026-11-03; owner): the battery reading differs from a reference meter by a few percent.
+- Facts: since OF-52 the battery value follows the nominal divider (R69 1 M, R70 330 k, 3.300 V reference); part tolerances
+  remain and nothing calibrates them: one meter read 5.2 V at 5.0 V (+3 %), another 0.1 V low at 4 to 6 V (-2 %).
+- Where: the battery page (SETUP item 1, `BAT5.0`), editable in the production image only (v2.05 refuses the edit). Long
+  SETUP: the page shows `bA` and the trimmed voltage in 0.01 V (`bA5.03`); REL +0.2 %, PEAK -0.2 % (stops at +-10 %, no
+  wrap); long SETUP saves; SETUP short leaves without saving; the edit timeout re-reads the EEPROM.
+- How: `pwr_bat_trim` (pwr/battery.s) scales the filtered value by (1000 + 2 t) / 1000 before the low-battery limit and the
+  page, so the 4.1 V limit acts on the trimmed (more accurate) voltage; the reading history stays untrimmed, so a new trim
+  shows at the next reading (200 ms).
+- Storage: one byte 0x02A = t + 100 (t = -50..+50); any value outside 50..150 (0x00, 0xFF included) means no trim
+  (EEPROM_MAP.md 4.1).
+
+### 2.17 Capacitor leakage test (future feature, not started)
+- Request (owner, 2026-11-03): a selectable leakage mode that uses the DIODE test source; `LEAK` on the sub display, the
+  leakage current on the main digits, RANGE switching between the two source voltages.
+- Facts: the DIODE source is not a constant current: 3 V setting 1.4 mA, 15 V setting 7 mA, limited by a nominal 2.2 kOhm
+  of PTC and resistors (user manual, 3 March 2025, p. 51 and the specification table). The 15 V setting switches the
+  RT9271 boost U10 on (PF6 = ENB high, PE15 low; `brd/frontend.s` from the v2.05 drivers); its output is set by the fixed
+  divider R40 47 k / R83 680 and also supplies U9 (HEF4053) through R81, so the firmware can only switch it on or off, not
+  set other voltages (`analysis/frontend_netlist.md`, U10 rows). The HY3131 row is the same in both settings.
+- Principle: once the capacitor has charged (up to the source current), only the leakage flows; it drops
+  I_leak x R_series below the open-circuit voltage, so I_leak = (V_open - V_cap) / R_series. With about 2.2 kOhm and the
+  1 mV resolution of the DIODE reading: about 0.45 uA per mV, up to the source current (a leak near 1 mA is plainly bad).
+- To measure on a meter before any design: open-circuit voltage at 3 V and 15 V, short-circuit current at both (gives
+  R_series), the drift of the boost output over a few minutes (drift reads as leakage), and a 1 MOhm resistor as a known
+  leak (about 15 uA at 15 V). The PTC resistance changes with temperature, which bounds the accuracy of the uA scale.
+- Limits to document: 15 V overstresses capacitors rated below it; the capacitor stays charged after the test; polarity
+  (+ on the VOhm jack); a test at 15 V does not prove a capacitor good at its rated voltage.
+- ESR is not measurable on this hardware (the CAP mode gives the firmware only counter times, AD1 is not read there and
+  is far too slow for a step), so it is not part of this feature.
+
 ## 3. EEPROM bytes the features need
 
 | Offset | Feature | Meaning | Default (0x00) | Word shared with | Status |
@@ -365,7 +460,8 @@ changed, ARS 7: "r5/r6 are row-bound ... those rows may not change").
 | 0x022 | 2.6 | change threshold 1..255 | 1 | as 0x020 | approved, implemented |
 | 0x028 | 2.14 loop | view code 0..2 (off / 4..20 / 0..20 mA) | off | none (free word 0x028..0x02B) | approved, implemented (planned for the LO limit of 2.1, which stays RAM only) |
 | 0x029 | 2.15 RTD | view code 0..2 (off / Pt100 / Pt1000) | off | as 0x028 | approved, implemented |
-| 0x02A..0x02B | - | - | - | as 0x028 | approved, not used |
+| 0x02A | 2.16 battery | trim t + 100 (t = -50..+50, 0.2 % steps) | no trim | as 0x028 | approved, implemented |
+| 0x02B | - | - | - | as 0x028 | approved, not used |
 | 0x02C..0x02F | 2.1 | HI limit, s32 big-endian | 0 | none (free word) | approved, not used (limits RAM only) |
 
 0x023 stays unused. Every offset above is in the never-accessed list of EMAP 4. The alternative locations 0x4B0..0x4CF (32
