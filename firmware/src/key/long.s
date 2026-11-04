@@ -240,6 +240,11 @@ FUNC handle_pg8_15_long_press
     ldr r1, =key_setup_edit             @ 08016392
     ldrb r1, [r1]                       @ 08016396
     orrs r0, r1                         @ 08016398
+    .if LOOP_V205 == 0
+    ldr r1, =lt_on
+    ldrb r1, [r1]
+    orrs r0, r1                         @ CF-01: the 1 kHz filter and the user current zero change D during the limit test
+    .endif
     uxtb r0, r0                         @ 0801639A
     cmp r0, #0                          @ 0801639C
     beq .Llp_080163A6                   @ 0801639E

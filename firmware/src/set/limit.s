@@ -6,12 +6,15 @@
 @ item 0):
 @   item 27  Lt       "LtOn " / "LtOFF".  Long SETUP starts the edit, REL or PEAK switches the test, long SETUP ends the edit
 @                     (and shows the verdict page when the test is on).  Switching on is refused (refusal beep) unless both
-@                     limits were captured in the present mode and range; Lo above HI is swapped first.
+@                     limits were captured in the present mode and range, and (CF-01) while REL, HOLD (either stage), PEAK
+@                     or MIN/MAX is on; Lo above HI is swapped first.
 @   item 28  Lo       the low limit, item 29 HI the high limit: "Lo---" / "HI---" before a capture; after it the label
 @                     ("Lo   " / "HI   ") and the value (digits and decimal point of the range it was captured in) alternate
 @                     with the 500 ms phase 0x20008077.  Long SETUP starts the edit, REL or PEAK captures the displayed
 @                     value 0x20007D64, long SETUP ends the edit.  A capture in another mode or range than the other limit
-@                     binds both limits to the present one (the other must be captured again).
+@                     binds both limits to the present one (the other must be captured again).  CF-02: a capture while the
+@                     display shows an overload (latched flag 0x20008048) is refused (refusal beep, nothing stored): the
+@                     count behind OFL is not a value the display shows.
 @   item 36  verdict  "PASS " while Lo <= D <= HI, "HI   " above, "Lo   " below (D = 0x20007D64, the value the main digits
 @                     show; an overload counts by its sign 0x20008045: HI, or Lo when negative); "-----" before the first
 @                     verdict.  Only while the test is on (else the dispatcher shows item 0).
@@ -20,6 +23,15 @@
 @ (lt_tick, from fn_08016E08); a change from PASS to HI / Lo gives the refusal pattern (fn_0800EE6C) and a change back to
 @ PASS the accept beep (fn_0800EE50), both through the buzzer setting.  The test ends when the mode or range differs from
 @ the limits' (a mode change), and at power-on and STOP wake (set_state_reset); the limits are RAM only (owner, 2026-11-02).
+@ CF-01 (custom build): REL, HOLD, PEAK and MIN/MAX each save range_manual when they freeze the range and restore it when
+@ they end, each in its own byte; ended in another order than started they restore a stale value (the meter was left in a
+@ manual range after limit test on, MIN/MAX on, limit test off, MIN/MAX off; REL off during the test unfroze the range and
+@ the test then ended silently at the next range change).  The test therefore runs alone: it cannot be switched on while
+@ one of them is on, and while it is on REL (short and long), HOLD, PEAK and MIN/MAX on / off are refused (key/short.s,
+@ key/long.s).  REL during the test also changed what D means (relative instead of absolute) against limits captured
+@ without it.  Logging may start on top of the test (log trigger tr-Lt): it saves range_manual = 1 and restores it.
+@ CF-03: a mode change ends the test without restoring range_manual: the mode apply (fn_0800D2D0, 0x0800D3B2..0x0800D3C6)
+@ has set it for the new mode (0, or 1 for DIODE) before lt_tick sees the change, and the restore overwrote that.
 @
 @ Not present in the strict image (LOOP_V205 = 1): this file assembles to nothing there.
 @ Context: main only.
@@ -44,7 +56,8 @@
     .equ LT_V_HI,             2
     .equ LT_V_LO,             3
     .equ lt_reading,          v_20007D64    @ displayed value D (counts)
-    .equ lt_ol,               v_20008046    @ overload flag
+    .equ lt_ol,               v_20008046    @ overload flag (set while lt_tick runs for an overloaded result)
+    .equ lt_ol_latch,         v_20008048    @ latched copy of the overload flag (key_ol_latch; kept between results)
     .equ lt_neg,              v_20008045    @ sign of the displayed overload (1 = negative)
     .equ lt_dp_now,           v_2000803F    @ decimal point code of the reading
     .equ lt_phase,            v_20008077    @ 500 ms phase (TIM2, always toggling)
@@ -136,6 +149,19 @@ LFUNC lt_off
 ENDFUNC lt_off
 
 @ -----------------------------------------------------------------------------
+@ lt_drop - end the test after a mode change, leaving range_manual as the mode apply set it (CF-03)
+@ Clobbers : r0, r1
+@ -----------------------------------------------------------------------------
+LFUNC lt_drop
+    movs r0, #0
+    ldr r1, =lt_on
+    strb r0, [r1]
+    ldr r1, =lt_verdict
+    strb r0, [r1]
+    bx lr
+ENDFUNC lt_drop
+
+@ -----------------------------------------------------------------------------
 @ set_lt_edit - edit action of the pages Lt (27), Lo (28), HI (29)
 @ In       : r0 = action: 1 up, 2 down, 100 end of the edit; r1 = item
 @ Clobbers : r0-r3, r12, flags (AAPCS)
@@ -150,6 +176,10 @@ FUNC set_lt_edit
     cmp r5, #LT_ITEM_ON
     beq .Lle_toggle
     @ ---- Lo / HI: capture the displayed value ----
+    ldr r0, =lt_ol_latch
+    ldrb r0, [r0]
+    cmp r0, #0
+    bne .Lle_refuse                         @ CF-02: the display shows an overload: nothing to capture
     bl lt_tag_now
     mov r6, r0                              @ r6 = tag now
     ldr r1, =lt_tag
@@ -160,7 +190,8 @@ FUNC set_lt_edit
     movs r0, #0
     ldr r1, =lt_valid
     strb r0, [r1]                           @ ... the other limit must be captured again
-    bl lt_off                               @ (a test bound to the old tag cannot stay on)
+    bl lt_drop                              @ (a test bound to the old tag cannot stay on; CF-03: the range lock belongs
+                                            @ to the present mode)
 1:  ldr r0, =lt_reading
     ldr r0, [r0]
     cmp r5, #LT_ITEM_LO
@@ -191,6 +222,21 @@ FUNC set_lt_edit
     ldrb r0, [r0]
     cmp r0, #3
     bne .Lle_refuse                         @ a limit missing
+    ldr r0, =rel_active                     @ CF-01: the test runs alone - refused while REL, HOLD (either stage),
+    ldrb r0, [r0]                           @ PEAK or MIN/MAX holds its own saved copy of range_manual
+    ldr r1, =hold_active
+    ldrb r1, [r1]
+    orrs r0, r1
+    ldr r1, =hold_stage2
+    ldrb r1, [r1]
+    orrs r0, r1
+    ldr r1, =peak_hold
+    ldrb r1, [r1]
+    orrs r0, r1
+    ldr r1, =minmax_state
+    ldrb r1, [r1]
+    orrs r0, r1
+    bne .Lle_refuse
     bl lt_tag_now
     ldr r1, =lt_tag
     ldrb r1, [r1]
@@ -262,13 +308,21 @@ FUNC lt_tick
     strb r0, [r1]
 1:  ldr r0, =lt_on
     ldrb r0, [r0]
-    cbz r0, .Ltk_ret
+    cmp r0, #0
+    beq .Ltk_ret                            @ (cbz no longer reaches .Ltk_ret after CF-03)
     bl lt_tag_now
     ldr r1, =lt_tag
     ldrb r1, [r1]
     cmp r0, r1
     beq 2f
-    bl lt_off                               @ the mode or range changed: the test ends
+    subs r0, r0, #1                         @ tag = mode * 8 + range + 1: (tag - 1) >> 3 = mode for ranges 0..7
+    lsrs r0, r0, #3
+    subs r1, r1, #1
+    cmp r0, r1, lsr #3
+    beq 7f
+    bl lt_drop                              @ CF-03: the mode changed: the test ends, range_manual as the mode apply set it
+    b .Ltk_ret
+7:  bl lt_off                               @ the range changed in the same mode: the test ends
     b .Ltk_ret
 2:  ldr r0, =lt_ol
     ldrb r0, [r0]

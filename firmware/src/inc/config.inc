@@ -29,8 +29,10 @@
     @ IMP-02 window), five characters with the decimal point after the third: the strict image "V-2.05" (v2.05 0x0801A856),
     @ the production image "F-0.94" (F = fast build, release v0.9.4; a release tag vA.B.C must match "F-A.BC", checked by
     @ .github/scripts/check_fw_version.py before anything is published).
+    @ Custom build: "C-0.94" (C = custom fixes CF-01..CF-04 on top of the fast build v0.9.4; never tagged or published,
+    @ so check_fw_version.py does not apply).
     .if LOOP_V205 == 0
-    .equ FW_VER_C0, 'F'
+    .equ FW_VER_C0, 'C'
     .equ FW_VER_C1, '-'
     .equ FW_VER_C2, '0'
     .equ FW_VER_C3, '9'

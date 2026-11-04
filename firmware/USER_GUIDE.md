@@ -4,6 +4,9 @@ Everything on this page is in the **fast build** (`2_fast/EEVBlog.bin`). The `1_
 original firmware apart from the defect fixes and has none of these features. At power-on the fast build shows its
 version, `F-0.94` (the release number, v0.9.4); the `1_like_v2.05` build shows `V-2.05` like the original.
 
+**Custom build `C-0.94`.** This tree is the fast build v0.9.4 with the fixes CF-01..CF-04 (`CUSTOM_CHANGES.md` next to
+this guide); it shows `C-0.94` at power-on. Everything below applies to it; the limit test differs as marked.
+
 All settings are stored in bytes of the data EEPROM that the original firmware never uses. Calibration, serial number
 and the original settings are not touched, and a meter flashed back to v2.05 simply ignores the new bytes.
 
@@ -111,6 +114,10 @@ Tip: `dSP 2` while adjusting a trimmer or watching something warm up or charge; 
 - While the test is on the range stays fixed (RANGE is refused); turning the dial ends the test. The limits are kept
   until the meter is switched off.
 - Switching on is refused (refusal beep) until both limits are captured in the present function and range.
+- `C-0.94`: the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
+  on those keys are refused (refusal beep); switch the test off first. A capture while the display shows `OFL` is refused
+  (nothing is stored). After the test, and after turning the dial, the range lock is what it should be (auto, or the
+  single DIODE range).
 
 Tip: check a box of resistors without reading a single number: capture 99 ohm and 101 ohm, then every part shows `PASS`
 or not.
