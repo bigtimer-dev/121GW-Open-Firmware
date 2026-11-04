@@ -2,7 +2,7 @@
 
 Everything on this page is in the **fast build** (`2_fast/EEVBlog.bin`). The `1_like_v2.05` build behaves like the
 original firmware apart from the defect fixes and has none of these features. At power-on the fast build shows its
-version, `F-0.94` (the release number, v0.9.4); the `1_like_v2.05` build shows `V-2.05` like the original.
+version, `F-0.96` (the release number, v0.9.6); the `1_like_v2.05` build shows `V-2.05` like the original.
 
 **Custom build `C-0.94`.** This tree is the fast build v0.9.4 with the fixes CF-01..CF-04 (`CUSTOM_CHANGES.md` next to
 this guide); it shows `C-0.94` at power-on. Everything below applies to it; the limit test differs as marked.
@@ -26,7 +26,7 @@ setting is kept over a power-off.
 The new pages come after the original SETUP pages, in this order:
 
 `bL` (backlight) → `bt` (Bluetooth speed) → `rEL` (REL mode) → `tc` (thermocouple type, TEMP only) → `dSP` (display
-level) → `bH` (continuity hold, BEEP only) → `CL` (12 / 24-hour clock) → `Lt`, `Lo`, `HI` (limit test; the verdict page
+level) → `bH` (continuity hold, BEEP only) → `LP` (4–20 mA view, DC mA only) → `Pt` (PT100 / PT1000 view, Ω only) → `CL` (12 / 24-hour clock) → `Lt`, `Lo`, `HI` (limit test; the verdict page
 while the test is on) → `tr`, `Ch` (logging trigger) → back to the first page (while MIN/MAX is on, the statistics pages
 `n` and `Sd` and the time pages `tHI` and `tLo` come before it)
 
@@ -79,15 +79,18 @@ Tip: use `bt 10` or `bt 20` for live plotting on a phone or computer, `bt  2` wh
 Tip: sorting parts against a nominal value. Measure a known-good part, press **REL**, then each part shows its deviation
 in percent directly (for example 1 % resistors should stay within -1.000 .. 1.000).
 
-## Thermocouple type K, J or T (TEMP)
+## Thermocouple type K, J, T, N, R or S (TEMP)
 
 - **Where:** dial to **mV / Temp**, press **MODE** until TEMP, then page `tc` (it is only offered in TEMP):
-  `tc-K` (default, as the original), `tc-J`, `tc-t`.
-- **Ranges:** K -200 .. 1350 °C (as the original), J -200 .. 936 °C, T -200 .. 400 °C. Outside the range the display
-  shows OFL. J stops at 936 °C because the meter's TEMP input is only proven up to the voltage K reaches at 1350 °C;
+  `tc-K` (default, as the original), `tc-J`, `tc-t`, `tc-n`, `tc-r`, `tc-S`.
+- **Ranges:** K -200 .. 1350 °C (as the original), J -200 .. 936 °C, T -200 .. 400 °C, N -200 .. 1300 °C, R and S
+  -50 .. 1760 °C. Outside the range the display shows OFL. J stops at 936 °C because the meter's TEMP input is only proven up to the voltage K reaches at 1350 °C;
   a J thermocouple reaches that voltage at 936 °C.
-- The cold junction (meter temperature) is compensated with the curve of the chosen type. The J and T curves are the
-  official NIST ITS-90 tables.
+- The cold junction (meter temperature) is compensated with the curve of the chosen type. All curves are the official
+  NIST ITS-90 tables.
+- R and S (platinum) thermocouples give a small voltage (about 6 µV per °C near room temperature), so near room
+  temperature the reading moves in steps of about 0.2 °C and depends strongly on the meter's microvolt accuracy; they are
+  meant for high temperatures.
 
 Tip: a probe read with the wrong setting shows a wrong temperature: a J probe at 100 °C reads about 122 °C with the K
 setting (meter at 25 °C). Set `tc` to the probe you plug in.
@@ -139,6 +142,26 @@ with the date and time of the row that held the maximum and the minimum, for exa
 
 Tip: `tr-Ch` with `Ch 10` and interval 0 records a slowly drifting value only when it actually moves, so a long session
 stays short and readable.
+
+## 4–20 mA loop in percent (DC mA)
+
+- **Where:** in DC mA (mA jack, dial A), page `LP`: `LPOFF` (default: the current, as the original), `L4-20`, `L0-20`.
+- **Effect:** the main display shows the loop signal as a percentage with the % sign: 4 mA = 0.00 %, 12 mA = 50.00 %,
+  20 mA = 100.00 % (with `L0-20`: 0 mA = 0 %, 20 mA = 100 %). Below 4 mA it goes negative, so a broken loop (0 mA) shows
+  -25.00 %. Logging, Bluetooth and MIN/MAX keep the current in mA.
+
+Tip: with `L4-20` a sensor's output reads directly in percent of its range, for example a pressure transmitter at 63.50 %.
+
+## PT100 / PT1000 temperature sensors (Ω)
+
+- **Where:** in Ω (dial Ω, resistance function), page `Pt`: `PtOFF` (default: the resistance, as the original), `Pt100`,
+  `P1000`.
+- **Effect:** the main display shows the temperature of a platinum sensor (IEC 60751, the usual "385" type) with 0.1 °,
+  in °C or °F as chosen for the temperature function, from -200.0 to 850.0 °C (outside: `OFL` / `-OFL`). Logging,
+  Bluetooth and MIN/MAX keep the resistance in Ω.
+- **Lead resistance:** the meter measures with two wires, so the test leads add to the sensor: 0.1 Ω reads about
+  0.26 °C high with a PT100. To remove it, press RANGE until the sensor's range is shown (PT100: 500.00 Ω, PT1000:
+  5.0000 kΩ), short the leads, press REL, then connect the sensor. A PT1000 is ten times less affected.
 
 ## Continuity beep hold time
 
@@ -196,6 +219,12 @@ The fast build also reacts faster, with no setting needed:
 - **Diode short tone:** designed for about 20 ms (original: 0.38 s, measured).
 - **Readings:** DC and AC currents, diode, the continuity display and the lower AC volt ranges update every 100 ms, the
   highest AC volt range every 25 ms, by design (original: about 221 ms, measured).
+- **DC volts:** twice as many updates as the original, with the same steadiness (each value is still the average of the
+  same 16 conversions, just shown twice as often). After a jump of the input the first value is the new level: the
+  original could show a value in between once (for example 4.5 V when connecting 9 V).
+- **Auto-hold in Ω and diode:** a short (0 Ω, 0 V) is captured like any other value; the original ignored readings below
+  1000 digits. Open probes (OL) are still ignored. In the volt and current functions auto-hold still ignores readings
+  near zero, because there open probes read about 0.
 
 The full list of changes and fixed defects is in `OPTIMIZATIONS.md` and `ORIGINAL_FIRMWARE_ISSUES.md`.
 

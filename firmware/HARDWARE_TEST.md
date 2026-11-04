@@ -57,8 +57,8 @@ The image has only run in the emulator. These checks confirm on hardware what th
 9. Bluetooth frame rate (production build): transfer on (PEAK long), SETUP to the page bt (after bL), long SETUP, step to
    `bt  4`, `bt 10`, `bt 20` and save; check in the phone application (or a BLE logger) that readings arrive at the chosen
    rate and that the application still connects and decodes them. Dump the EEPROM after the save: only byte 0x015 may differ.
-10. Thermocouple type (production build): TEMP, SETUP to the page tc (after bt), select J or T and save; with a J or T probe
-   (or a thermocouple calibrator set to J / T) compare readings at room temperature, in ice water (0 degC) and at a known
+10. Thermocouple type (production build): TEMP, SETUP to the page tc (after bt), select J, T, N, R or S and save; with such a probe
+   (or a thermocouple calibrator set to the type) compare readings at room temperature, in ice water (0 degC) and at a known
    hot point. Dump the EEPROM after the save: only byte 0x00F may differ.
 11. REL in percent (production build): SETUP to the page rEL (after bt), select `rEL-P` and save; DCV with a source at 1 V,
    REL, then 1.1 V: 10.000 with the % sign and no V; REL off: volts again. Dump the EEPROM after the save: only byte 0x020
@@ -94,6 +94,12 @@ The image has only run in the emulator. These checks confirm on hardware what th
    modified on the PC (v2.05: created 2006-02-09 22:30).
 22. Buzzer off (both builds, OF-63): SETUP page 3 `b-OFF`. Diode short, auto-hold capture, the auto power-off warning and the
    power-off beep are silent; continuity still beeps, and so do the wrong-jack and high-voltage warnings.
+23. 4-20 mA view (production build, IMP-24): DCmA, SETUP page `LP` = `L4-20`; a known current (for example a 4-20 mA
+   source or a 9 V battery through a resistor): the display shows (I - 4 mA) / 16 mA x 100 % with the % sign; `LPOFF` shows
+   the current again.
+24. PT100 / PT1000 view (production build, IMP-25): OHM, SETUP page `Pt` = `Pt100`; a resistor near 100 ohm (or a PT100
+   sensor): the display shows the IEC 60751 temperature of the reading with the degC sign (100.00 ohm = 0.0 degC,
+   138.51 ohm = 100.0 degC); `PtOFF` shows the resistance again.
 
 ## After the tests
 - Dump the EEPROM once more; only the bytes of the actions you performed may differ (settings, calibration you ran).

@@ -27,22 +27,22 @@
 
     @ Version shown at power-on (splash fn_0801A854 on the main display, ui_version_sub on the sub display during the
     @ IMP-02 window), five characters with the decimal point after the third: the strict image "V-2.05" (v2.05 0x0801A856),
-    @ the production image "F-0.94" (F = fast build, release v0.9.4; a release tag vA.B.C must match "F-A.BC", checked by
+    @ the production image "F-0.96" (F = fast build, release v0.9.6; a release tag vA.B.C must match "F-A.BC", checked by
     @ .github/scripts/check_fw_version.py before anything is published).
-    @ Custom build: "C-0.94" (C = custom fixes CF-01..CF-04 on top of the fast build v0.9.4; never tagged or published,
-    @ so check_fw_version.py does not apply).
+    @ Custom build: "C-0.96" (C = custom fixes CF-01.. on top of the fast build v0.9.6; tagged custom-c*, never v*, so
+    @ check_fw_version.py does not apply).
     .if LOOP_V205 == 0
     .equ FW_VER_C0, 'C'
     .equ FW_VER_C1, '-'
     .equ FW_VER_C2, '0'
     .equ FW_VER_C3, '9'
-    .equ FW_VER_C4, '4'
+    .equ FW_VER_C4, '6'
     .else
     .equ FW_VER_C0, 'V'
     .equ FW_VER_C1, '-'
     .equ FW_VER_C2, '2'
     .equ FW_VER_C3, '0'
-    .equ FW_VER_C4, '5'
+    .equ FW_VER_C4, '6'
     .endif
 
     @ DEBUG = 1 sets DBGMCU_CR DBG_SLEEP | DBG_STOP | DBG_STANDBY at every start as v2.05 does (0x0801BEF8).
