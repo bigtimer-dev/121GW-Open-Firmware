@@ -707,6 +707,7 @@ FUNC bfx_request
     ldr r0, =bft_reset_due
     ldrb r0, [r0]
     cbnz r0, .Lrq_refuse                    @ the meter is about to restart
+    bl bfl_cancel                           @ CF-08: any request ends a stream
     cmp r4, #BFX_T_LIST
     beq .Lrq_list
     cmp r4, #BFX_T_READ
@@ -721,6 +722,10 @@ FUNC bfx_request
     beq .Lrq_get
     cmp r4, #BFX_T_PUT
     beq .Lrq_put
+    cmp r4, #0x18
+    beq .Lrq_link
+    cmp r4, #0x19
+    beq .Lrq_stream
 .Lrq_refuse:
     movs r0, #BFX_ST_NOTALLOWED
     bl bfx_status
@@ -745,6 +750,12 @@ FUNC bfx_request
     b .Lrq_reply
 .Lrq_put:
     bl bfs_put
+    b .Lrq_reply
+.Lrq_link:
+    bl bfl_link
+    b .Lrq_reply
+.Lrq_stream:
+    bl bfl_stream
 .Lrq_reply:
     bl bfx_reply
     pop {r4, pc}

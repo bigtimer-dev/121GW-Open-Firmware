@@ -40,6 +40,7 @@
     .equ BLE_TX_IDLE,   0               @ nothing in transmission
     .equ BLE_TX_FRAME,  1               @ status frame being transmitted
     .equ BLE_TX_ECHO,   2               @ queued echo bytes being transmitted
+    .equ USART_CR1_TCIE, 0x0040         @ RM0038 27.6.4 (CF-08: idle gaps)
     .equ BLE_SWS_HSE,   0x08            @ RCC_CFGR SWS = 10b: HSE is the system clock (RM0038 6.3.3)
 
     .section .bss_port.ble, "aw", %nobits
@@ -249,6 +250,42 @@ ENDFUNC ble_tx_queue_put
     .ltorg
 
 @ -----------------------------------------------------------------------------
+@ ble_tx_gap - TC event in a gap wait: send an idle frame, then continue with the TXE interrupt
+@ Clobbers : r0-r3, r12, flags
+@ Context  : USART2 interrupt (TC with TCIE, set only by ble_tx_pump while the page Ld owns the link)
+@ Note     : RM0038 27.3.2: TE cleared and set again with the shift register empty sends one idle frame; a byte
+@            written meanwhile waits in TDR behind it, so the next TXE event comes when the idle frame has started.
+@ -----------------------------------------------------------------------------
+FUNC ble_tx_gap
+    ldr r2, =USART2_BASE
+    ldrh r0, [r2, #USART_CR1]
+    bic r0, r0, #(USART_CR1_TCIE | USART_CR1_TE)
+    strh r0, [r2, #USART_CR1]
+    orr r0, r0, #(USART_CR1_TE | USART_CR1_TXEIE)
+    strh r0, [r2, #USART_CR1]               @ idle frame queued, TXE interrupt again (TXE is set: the pump runs next)
+    movs r0, #0
+    ldr r1, =bfl_gapcnt
+    strb r0, [r1]
+    bx lr
+ENDFUNC ble_tx_gap
+
+@ -----------------------------------------------------------------------------
+@ ble_tx_queue_drop - forget the queued bytes not yet transmitted (CF-08: a stream that a new request ends)
+@ Clobbers : r0-r2
+@ Context  : main only
+@ -----------------------------------------------------------------------------
+FUNC ble_tx_queue_drop
+    mrs r2, primask
+    cpsid i
+    ldr r0, =ble_txq_head
+    ldrb r0, [r0]
+    ldr r1, =ble_txq_tail
+    strb r0, [r1]                           @ tail = head: empty (a byte in the shift register still finishes)
+    msr primask, r2
+    bx lr
+ENDFUNC ble_tx_queue_drop
+
+@ -----------------------------------------------------------------------------
 @ ble_tx_pump - one TXE event: send the next byte or stop
 @ Replaces : the TXE branch of IRQ38_Handler 0x080247D8 (0x080247E8..0x08024810) and the inline first-byte send of
 @            IRQ28_Handler 0x08024630..0x08024658
@@ -334,12 +371,45 @@ FUNC ble_tx_pump
     movs r0, #BLE_TX_ECHO
     strb r0, [r5]                           @ echo bytes in transmission
 .Lpump_echo:
+    ldr r0, =bft_active
+    ldrb r0, [r0]
+    cbz r0, .Lpump_unpaced                  @ CF-08: pacing only while the page Ld owns the link
+    ldr r0, =bfl_gap
+    ldrb r0, [r0]
+    cbz r0, .Lpump_nogap
+    ldr r1, =bfl_gapcnt
+    ldrb r2, [r1]
+    cmp r2, r0
+    blo .Lpump_nogap
+    @ CF-08: an idle frame is due before this byte: wait for the shift register to empty (TC), then ble_tx_gap
+    @ toggles TE (RM0038 27.3.2: setting TE sends an idle frame) and the pump goes on behind the idle frame
+    ldrh r0, [r4, #USART_CR1]
+    bic r0, r0, #USART_CR1_TXEIE
+    orr r0, r0, #USART_CR1_TCIE
+    strh r0, [r4, #USART_CR1]
+    pop {r4, r5, pc}
+.Lpump_nogap:
+    ldr r0, =bfl_pace
+    ldrb r0, [r0]
+    cbz r0, .Lpump_unpaced
+    ldr r1, =bfl_budget
+    ldrb r0, [r1]
+    cbz r0, .Lpump_paced                    @ this tick's bytes are sent: ble_tx_tick resumes at the next tick
+    subs r0, r0, #1
+    strb r0, [r1]
+.Lpump_unpaced:
     ldr r2, =ble_txq_tail
     ldr r3, =ble_txq_head
     ldrb r0, [r2]                           @ tail
     ldrb r1, [r3]                           @ head
     cmp r0, r1
     beq .Lpump_echodone                     @ queue drained
+    ldr r1, =bfl_gapcnt
+    ldrb r3, [r1]
+    adds r3, r3, #1
+    it eq
+    moveq r3, #255                          @ saturate (never wraps to 0)
+    strb r3, [r1]                           @ CF-08: bytes since the last idle frame
     ldr r1, =ble_txq
     ldrb r1, [r1, r0]                       @ next queued byte
     adds r0, r0, #1
@@ -350,6 +420,13 @@ FUNC ble_tx_pump
     movs r0, #BLE_TX_IDLE
     strb r0, [r5]                           @ echo finished: a waiting frame start may go next
     b .Lpump_idle
+.Lpump_paced:
+    movs r0, #0
+    ldr r1, =bfl_gapcnt
+    strb r0, [r1]                           @ the pause until the next tick is a gap of its own
+    movs r0, #BLE_TX_IDLE
+    strb r0, [r5]                           @ idle between ticks (no status frames while the page Ld owns the link)
+    b .Lpump_stop
 .Lpump_hse:
     ldr r5, =ble_tx_state
     movs r0, #BLE_TX_IDLE
@@ -389,10 +466,18 @@ FUNC ble_usart2_isr
     ldrh r0, [r4, #USART_SR]
     ldrh r1, [r4, #USART_CR1]
     tst r0, #USART_SR_TXE
-    beq .Lisr_rx                            @ TXE not set
+    beq .Lisr_tc                            @ TXE not set
     tst r1, #USART_CR1_TXEIE
-    beq .Lisr_rx                            @ TXE interrupt not enabled
+    beq .Lisr_tc                            @ TXE interrupt not enabled
     bl ble_tx_pump                          @ send the next byte or stop
+.Lisr_tc:
+    ldrh r0, [r4, #USART_SR]
+    ldrh r1, [r4, #USART_CR1]
+    tst r0, #USART_SR_TC
+    beq .Lisr_rx
+    tst r1, #USART_CR1_TCIE
+    beq .Lisr_rx
+    bl ble_tx_gap                           @ CF-08: shift register empty, idle frame then the next byte
 .Lisr_rx:
     ldrh r0, [r4, #USART_SR]
     tst r0, #USART_SR_RXNE
@@ -523,6 +608,10 @@ FUNC usart2_init_19200_pf15_high
     movw r1, #0x727
     ldr.w r0, =USART2_BASE
     bl fn_0801CC08                       @ TXE interrupt off (USART_Init keeps a stale TXEIE of an earlier session)
+    ldr r2, =USART2_BASE
+    ldrh r0, [r2, #USART_CR1]
+    bic r0, r0, #USART_CR1_TCIE
+    strh r0, [r2, #USART_CR1]            @ CF-08: no stale gap wait either
     movs r1, #0x1                           @ 0801C41C
     ldr.w r0, =USART2_BASE                  @ 0801C41E
     bl fn_0801CBDC                          @ 0801C422  USART_Cmd [r1=1]

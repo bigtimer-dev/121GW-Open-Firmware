@@ -5,12 +5,13 @@ original firmware apart from the defect fixes and has none of these features. At
 version, `F-1.06` (the release number, v1.0.6), on the small display; the main display stays blank until the first
 reading. The `1_like_v2.05` build shows `V-2.05` like the original.
 
-**Custom build `C-1.06`.** This tree is the fast build v1.0.6 with the custom changes CF-01..CF-07 (`CUSTOM_CHANGES.md` next to
-this guide); it shows `C-1.06` at power-on. Everything below applies to it; the limit test differs as marked. Three more
+**Custom build `C-1.07`.** This tree is the fast build v1.0.6 with the custom changes CF-01..CF-08 (`CUSTOM_CHANGES.md` next to
+this guide); it shows `C-1.07` at power-on. Everything below applies to it; the limit test differs as marked. Three more
 differences have no page of their own: on a noisy DC voltage (ripple, a noisy supply) the DCV reading is as steady as on
 the original firmware (CF-05), while on a clean source a step still shows at once; and a Bluetooth set-clock frame with
 an impossible date or time is refused (CF-06); and while a SETUP page is shown the meter sends its text over
-Bluetooth, so an app can name the page and show its setting (CF-07).
+Bluetooth, so an app can name the page and show its setting (CF-07); and card files come over Bluetooth about six times
+as fast and without damaged pieces (CF-08, page `Ld-bt` below).
 
 All settings are stored in bytes of the data EEPROM that the original firmware never uses. Calibration, serial number
 and the original settings are not touched, and a meter flashed back to v2.05 simply ignores the new bytes.
@@ -122,7 +123,7 @@ Tip: `dSP 2` while adjusting a trimmer or watching something warm up or charge; 
 - While the test is on the range stays fixed (RANGE is refused); turning the dial ends the test. The limits are kept
   until the meter is switched off.
 - Switching on is refused (refusal beep) until both limits are captured in the present function and range.
-- Custom build (`C-1.06`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
+- Custom build (`C-1.07`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
   on those keys are refused (refusal beep); switch the test off first. A capture while the display shows `OFL` is refused
   (nothing is stored). After the test, and after turning the dial, the range lock is what it should be (auto, or the
   single DIODE range).
@@ -176,7 +177,8 @@ Tip: with `L4-20` a sensor's output reads directly in percent of its range, for 
 
 With the meter on the SETUP page `Ld-bt` (Bluetooth on, logging off, not in calibration mode), the 121GW Companion can:
 
-- **list the card's files** (root folder, long names), **download** them (about 1 KB/s, every piece checked with a CRC),
+- **list the card's files** (root folder, long names), **download** them (about 1.1 KB/s with the custom build's fast
+  reads (CF-08) and an app that uses them, such as the 121gw-linux app; every piece checked with a CRC),
   **delete** them (`cal.bin`, `EEVBlog.bin` and `BTLOAD.TMP` cannot be deleted), show the free space, and copy new or
   changed files into a folder on the computer ("sync");
 - **read and change the settings** of the SETUP pages: thermocouple type, temperature unit, dBm reference, display level,
@@ -184,6 +186,10 @@ With the meter on the SETUP page `Ld-bt` (Bluetooth on, logging off, not in cali
   view, logging trigger and change threshold, 12-hour clock, current-loop and RTD views, battery trim.  A change is
   stored exactly as the page itself stores it; calibration, serial number and the rotary memory cannot be reached.  The
   logging interval is set on the meter only.
+
+For full speed the computer has to hold the Bluetooth connection at its shortest interval (7.5 ms): on Linux
+`MinConnectionInterval=6` and `MaxConnectionInterval=6` in the `[LE]` section of `/etc/bluetooth/main.conf`. At a
+longer interval the meter's Bluetooth module is slower and the app sends slower to match.
 
 Nothing is written to the card except the deletes you confirm.  While the companion uses the card the readings pause
 (the page `Ld` owns the link).

@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        script: [test_sd_scr.py, test_sd_errors.py, test_dcv_fast.py, test_bft_files.py, test_bft_settings.py,
+        script: [test_sd_scr.py, test_sd_errors.py, test_dcv_fast.py, test_bft_files.py, test_bft_fast.py, test_bft_settings.py,
                  test_calbin_ident.py]
     steps:
       - uses: actions/checkout@v7

@@ -212,7 +212,7 @@ FUNC bft_tick
     it lo
     addlo r0, r0, #1
     strb r0, [r1]
-    bx lr
+    b bfl_tick_refill                       @ CF-08: transmit budget of this tick (tail call)
 ENDFUNC bft_tick
 
 @ -----------------------------------------------------------------------------
@@ -1031,9 +1031,9 @@ LFUNC bft_packet
     beq .Lpk_status
     cmp r0, #0x10
     blo 1f
-    cmp r0, #0x17
+    cmp r0, #0x19
     bhi 1f
-    bl bfx_request                          @ 0x10 .. 0x17: SD card files and settings, answered with type 0x82
+    bl bfx_request                          @ 0x10 .. 0x19: SD card files, settings, fast reads (CF-08), answered with type 0x82
     pop {r4-r7, pc}                         @ (ble/bftsd.s, ble/bftset.s; r0 = type)
 1:  movs r0, #3                             @ unknown type: not allowed
     b .Lpk_answer
@@ -1324,8 +1324,11 @@ FUNC bft_poll
     movs r0, #BFT_ST_WAIT
     movs r1, #0
     bl bft_set_state                        @ waiting (also after leaving: shown when the page comes back)
+    mov r0, r4
+    bl bfl_owner                            @ CF-08: pacing and idle gaps at their defaults when the page takes the link
 3:  cmp r4, #0
     beq .Lpo_ret
+    bl bfl_poll                             @ CF-08: LINK change, stream pieces
     @ a packet cut short (a byte lost: ring full, or received while the card was written) is dropped after 200 ms
     @ without a byte, so the sender's repetition starts on a fresh packet
     ldr r1, =bft_pos
