@@ -1,7 +1,7 @@
-# Custom build C-1.04
+# Custom build C-1.06
 
-Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.0.4 (main at commit 0319609,
-merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.04`** at
+Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.0.6 (release tag v1.0.6,
+merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.06`** at
 power-on and answers the Bluetooth version request with it.
 
 History: C-0.94 (CF-01..CF-04 on v0.9.4, commit 3e7953d) was flashed on a real 121GW on 2026-11-03: it boots, shows
@@ -11,7 +11,10 @@ LowZ bargraph fixes, IMP-28 firmware file over Bluetooth to the SD card, IMP-29 
 Bluetooth, IMP-31 every set-clock frame applied) and adds CF-06. C-1.03 adds CF-07 (the SETUP page text over Bluetooth). C-1.04 merges v1.0.3 / v1.0.4 (exFAT and long file
 names, page For, IMP-33 SD write wait, IMP-34 SCR read, IMP-35 no main-display splash, the bootloader commands 0x91 /
 0x92 and the first install of the two-part bootloader) and moves the CF-07 frame from F7 to FA (v1.0.4 uses F7 for the
-bootloader version answer).
+bootloader version answer). C-1.06 merges v1.0.5 / v1.0.6 (the DCV ramp-freeze fix of GitHub issue 3, OF-66 SD
+unaligned DMA, IMP-36 SD card files and IMP-37 settings over Bluetooth on page Ld, the cal.bin restore that v1.0.4 /
+v1.0.5 refused, IMP-38 restore only to the matching serial, OF-67 long MEM at power-on) and re-does CF-05 on the new
+step test.
 
 Since v1.0.0 zombu4's main builds only the fast image (the like-v2.05 build moved to his branch `like-v2.05`, and the
 `LOOP_V205` switches are gone from the sources); the custom changes, which were inside `.if LOOP_V205 == 0` blocks, are
@@ -75,6 +78,16 @@ range-change settle time, the same noise at 8 counts); with noise the window no 
 larger than about 4.8 sigma is still taken at once (1 V -> 3 V with 60 counts of noise: 3 V after 75 ms, no straddled
 value). A step smaller than that is averaged as in v2.05. A range or mode change resets the estimate.
 `test_custom_dcv_noise.py` checks both.
+
+C-1.06: zombu4's v1.0.5 replaced the step test for the DCV ramp freeze of his GitHub issue 3: a sample is compared with
+the last sample taken (not the running mean), held back for one sample, and taken as a step, a spike or a fast move by
+the next one; after a restart no further step is taken until a mean has been published. His v1.0.6 alone still restarts
+on noise (`test_custom_dcv_noise`: 1.88 / 1.67 x sigma/4 at 60 / 120 counts, both fail). CF-05 is re-done on the new
+test: mdc_dcv_mad is now the running mean of |sample - last taken| over the samples within the threshold (about 1.13
+sigma of Gaussian noise), the threshold stays max(8192 codes, 6 x mad), about 6.8 sigma of the sample noise or 4.8
+sigma of a sample difference. Spikes and far-from-both samples (a steep ramp) don't feed it. Result: 1.10 / 1.11 x
+sigma/4 (16.5 / 33.3 counts), a 1 V -> 3 V step under noise shown after 75 ms with no straddled value; his ramp
+checks of `test_dcv_fast.py` (T5 / T6) pass unchanged.
 
 ### CF-06 Set-clock frame range check (ble/commands.s, `fn_0800C332`)
 
@@ -158,20 +171,20 @@ so C-1.03 and later also send that page's text frame after the key echo. T2 now 
 Toolchain: GNU binutils 2.46.0.20260210 (as zombu4's CI), unicorn 2.1.4 / capstone 5.0.9 for the emulator. The untouched
 v1.0.4 tree (0319609) rebuilds byte-identical to zombu4's v1.0.4 release (`3fc07e80…2cdd`), so the toolchain matches.
 
-| Check | Custom C-1.04 | v1.0.2 unmodified |
+| Check | Custom C-1.06 | v1.0.2 unmodified |
 |---|---|---|
 | `make check-ci` (check_image, check_hy, check_gpio) | PASS | PASS |
 | Image vs zombu4's release | (custom) | byte-identical |
-| The whole emulator suite, 32 scripts (zombu4's, incl. `test_sd_scr` of v1.0.4, plus this fork's) | all pass | zombu4's: his CI |
+| The whole emulator suite, 35 scripts (zombu4's, incl. `test_bft_files`, `test_bft_settings`, `test_calbin_ident` of v1.0.5 / v1.0.6, plus this fork's) | all pass | zombu4's: his CI |
 | `test_custom_fixes.py` (CF-01 keys / switch-on / PEAK, CF-02, CF-03, 26 checks) | all pass | 14 fail (the bugs are still there) |
 | `test_custom_fattime.py` (`get_fattime` by direct execution, 14 calendar inputs, CF-04) | all pass | 6 fail |
 | `test_custom_dcv_noise.py` (CF-05: noise at 60 / 120 counts, a 1 V -> 3 V step under noise) | all pass | the 2 noise checks fail (1.95 x, 2.50 x) |
 | `test_clock_frame.py` (set-clock frame 0xF8: checksum, echo, clock and SETUP pages, every frame applied (IMP-31), CF-06 four out-of-calendar frames) | all pass | the 4 CF-06 checks fail: the clock takes the values |
 | `test_custom_subtext.py` (CF-07: every SETUP page of dials 2..8 sent as on the LCD, status frames intact, item 0 once then quiet, nothing on Ld, an edit on bt) | all pass | no FA frames at all |
 | `test_custom_server.py` (emulator server / command checks, E-01..E-05) | all pass | n/a |
-| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.04`, mode / page / HOLD / REL unchanged | `F-1.02` |
+| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.06`, mode / page / HOLD / REL unchanged | `F-1.02` |
 | Same request sent to C-0.96 (older firmware) | echoed, no answer, nothing changed | n/a |
-| Power-on version (sub display) | `C-1.04` | `F-1.02` |
+| Power-on version (sub display) | `C-1.06` | `F-1.02` |
 | SETUP page text (FA) decoded by the Linux app (`gw121/setup_pages.py`) on dials 2 and 5 | every page named, value as on the LCD | n/a |
 
 Run them from the repository root with Python 3, `unicorn` and `capstone` (as the emulator), after a build
@@ -182,7 +195,7 @@ The emulator runs the real image instruction by instruction with modelled periph
 settling, real key bounce, the battery, the LCD glass and the real SD cards are models or absent. Run the checks of
 `HARDWARE_TEST.md` and the first checks of the main `README.md` on the meter.
 
-SHA-256 of the custom fast image C-1.04: `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes).
-Earlier: C-1.03 (tag `custom-c1.03`) `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes), C-1.02 (tag `custom-c1.02`) `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes),
+SHA-256 of the custom fast image C-1.06: `1aa765f17544def57fd9b08f9c6250c2088d60860ec574568e787bd2263d9a12` (172168 bytes).
+Earlier: C-1.04 (tag `custom-c1.04`) `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes), C-1.03 (tag `custom-c1.03`) `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes), C-1.02 (tag `custom-c1.02`) `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes),
 C-0.96 (tag `custom-c0.96`) `6f090b5d8d00b039aa2de4ad1338eede998c86d1d3d32a8ea88a0fdec3840497` (152880 bytes),
 C-0.94 (tag `custom-c0.94`) `355c6ff0485987bd781f943a971da6e311018afdea8976f156ccc34cf2842580` (148228 bytes).

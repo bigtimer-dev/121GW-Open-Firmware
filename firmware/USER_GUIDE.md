@@ -2,10 +2,11 @@
 
 Everything on this page is in the **fast build** (`2_fast/EEVBlog.bin`). The `1_like_v2.05` build behaves like the
 original firmware apart from the defect fixes and has none of these features. At power-on the fast build shows its
-version, `F-1.00` (the release number, v1.0.0); the `1_like_v2.05` build shows `V-2.05` like the original.
+version, `F-1.06` (the release number, v1.0.6), on the small display; the main display stays blank until the first
+reading. The `1_like_v2.05` build shows `V-2.05` like the original.
 
-**Custom build `C-1.04`.** This tree is the fast build v1.0.4 with the custom changes CF-01..CF-07 (`CUSTOM_CHANGES.md` next to
-this guide); it shows `C-1.04` at power-on. Everything below applies to it; the limit test differs as marked. Three more
+**Custom build `C-1.06`.** This tree is the fast build v1.0.6 with the custom changes CF-01..CF-07 (`CUSTOM_CHANGES.md` next to
+this guide); it shows `C-1.06` at power-on. Everything below applies to it; the limit test differs as marked. Three more
 differences have no page of their own: on a noisy DC voltage (ripple, a noisy supply) the DCV reading is as steady as on
 the original firmware (CF-05), while on a clean source a step still shows at once; and a Bluetooth set-clock frame with
 an impossible date or time is refused (CF-06); and while a SETUP page is shown the meter sends its text over
@@ -121,7 +122,7 @@ Tip: `dSP 2` while adjusting a trimmer or watching something warm up or charge; 
 - While the test is on the range stays fixed (RANGE is refused); turning the dial ends the test. The limits are kept
   until the meter is switched off.
 - Switching on is refused (refusal beep) until both limits are captured in the present function and range.
-- Custom build (`C-1.04`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
+- Custom build (`C-1.06`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
   on those keys are refused (refusal beep); switch the test off first. A capture while the display shows `OFL` is refused
   (nothing is stored). After the test, and after turning the dial, the range lock is what it should be (auto, or the
   single DIODE range).
@@ -166,9 +167,43 @@ Tip: with `L4-20` a sensor's output reads directly in percent of its range, for 
   file, 4 the copy failed, 5 the copy reads back differently); start the transfer again or copy the file with a computer.
   After `LdE 4` or `LdE 5` the card holds either the old `EEVBlog.bin` untouched or none at all (a partly written one is
   deleted, so the update key sequence then leaves the installed firmware unchanged).
-- **Then update as usual:** switch off, hold HOLD and MEM while switching on, then press SETUP.
+- **Then update as usual:** switch off, hold HOLD and MEM while switching on, then press SETUP. With the two-part
+  bootloader installed (next section) the companion does this step itself: no keys.
 - Logging must be off. The meter keeps measuring during the transfer. Leaving the page stops it; the old `EEVBlog.bin`
   stays until a new file has arrived complete and checked.
+
+## Card files and settings from the companion (page `Ld-bt`)
+
+With the meter on the SETUP page `Ld-bt` (Bluetooth on, logging off, not in calibration mode), the 121GW Companion can:
+
+- **list the card's files** (root folder, long names), **download** them (about 1 KB/s, every piece checked with a CRC),
+  **delete** them (`cal.bin`, `EEVBlog.bin` and `BTLOAD.TMP` cannot be deleted), show the free space, and copy new or
+  changed files into a folder on the computer ("sync");
+- **read and change the settings** of the SETUP pages: thermocouple type, temperature unit, dBm reference, display level,
+  continuity threshold and hold, Bluetooth speed, auto power-off, backlight auto-off, contrast, VA burden, buzzer, REL
+  view, logging trigger and change threshold, 12-hour clock, current-loop and RTD views, battery trim.  A change is
+  stored exactly as the page itself stores it; calibration, serial number and the rotary memory cannot be reached.  The
+  logging interval is set on the meter only.
+
+Nothing is written to the card except the deletes you confirm.  While the companion uses the card the readings pause
+(the page `Ld` owns the link).
+
+## Two-part bootloader (with the 121GW Companion)
+
+The two-part bootloader (`bootloader/README.md`, releases `bl-vA.B.C`) replaces EEVblog's. The fast build supports it in two
+ways, both used by the companion program (releases `companion-vA.B.C`):
+
+- **First install:** the companion sends the install file over the same page `Ld-bt` (start the transfer by pressing SETUP
+  until `Ld-bt`). The meter checks that its bootloader area is one of EEVblog's builds and that the battery is at least
+  4.80 V, writes the new bootloader, restarts, and the starter installs it. Extra `LdE` codes: `LdE 7` the bootloader area is
+  not one of EEVblog's builds (nothing written), `LdE 8` battery below 4.80 V (nothing written), `LdE 9` the install file or
+  a flash step failed.
+- **Update requests:** once the two-part bootloader is installed, the companion can ask the running firmware to restart into
+  the bootloader's update mode, and can ask for the bootloader version (`B-` and three digits, or `B-EEV` for EEVblog's).
+  The firmware and bootloader updates then run over Bluetooth with nothing to press on the meter. With EEVblog's bootloader
+  the restart request does nothing; the card and key sequence above is the way.
+
+The card update (HOLD + MEM at power-on, SETUP) keeps working with the two-part bootloader.
 
 ## Format the SD card (exFAT)
 

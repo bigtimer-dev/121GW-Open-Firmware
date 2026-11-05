@@ -1,16 +1,16 @@
-# 121GW Open Firmware: custom build C-1.04 (bigtimer-dev fork)
+# 121GW Open Firmware: custom build C-1.06 (bigtimer-dev fork)
 
-This is a fork of [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) at **v1.0.4** (zombu4's
-commit `0319609`, merged) with six firmware fixes, one Bluetooth addition and emulator changes on top. The meter shows
-**`C-1.04`** at power-on (and answers the Bluetooth version request with it). Earlier builds: `C-0.94` (tag
+This is a fork of [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) at **v1.0.6** (zombu4's
+release tag `v1.0.6`, merged) with six firmware fixes, one Bluetooth addition and emulator changes on top. The meter shows
+**`C-1.06`** at power-on (and answers the Bluetooth version request with it). Earlier builds: `C-0.94` (tag
 `custom-c0.94`, ran on a real 121GW from 2026-11-03), `C-0.96` (tag `custom-c0.96`), `C-1.02` (tag `custom-c1.02`) and `C-1.03` (tag `custom-c1.03`, ran on the
-real 121GW from 2026-11-04).
+real 121GW from 2026-11-04) and `C-1.04` (tag `custom-c1.04`, ran on the real 121GW from 2026-11-05).
 
 The firmware port and the emulator are zombu4's work; this fork only adds the changes listed below. zombu4's licence
 ([`LICENSE`](LICENSE), unchanged) covers everything here, including its terms on commercial use. This is a personal
 build, not an official zombu4 or EEVblog release. Flashing is at your own risk.
 
-## What is different from zombu4's v1.0.4
+## What is different from zombu4's v1.0.6
 
 | | Fix | Files |
 |---|---|---|
@@ -23,7 +23,9 @@ build, not an official zombu4 or EEVblog release. Flashing is at your own risk.
 | CF-07 | **SETUP page text over Bluetooth** (addition). On most SETUP pages (all the open firmware's new pages and v2.05's beeper, ID and logging-interval pages) the status frame sends zeros for the small display, so an app can't tell what the meter shows. While a SETUP page is shown the meter now also sends an 11-byte frame `FA` (`F7` in C-1.03) with the page number, the five characters, decimal point, sign, unit icons and an "editing" flag. The 19-byte status frame is unchanged; apps that don't know `FA` skip it. | `ble/subtext.s`, `lcd/draw.s`, `ble/packet.s` |
 | E-01..E-05 | **Emulator:** speed NaN / inf / ≤ 0 refused (it stopped the emulation thread); the web UI refuses requests from other web pages (Host and Origin checks); negative or non-numeric `Content-Length` refused and `/input` capped at 64 KiB; upload names `.` / `..`; static file path check. E-06: a "Bluetooth: SETUP page text" panel on the page; E-07: `--host ADDRESS` to open the page from another device (opt-in). | `emulator/app.py`, `emulator/ui/server.py`, `emulator/ui/index.html` |
 
-- CF-01..CF-04 and CF-06 are still present in zombu4's v1.0.4 (the tests below fail on v1.0.2; the code is unchanged in v1.0.4).
+- CF-01..CF-04 and CF-06 are still present in zombu4's v1.0.6 (the tests below fail on v1.0.2; the code is unchanged in v1.0.6).
+- CF-05 was re-done for C-1.06 on zombu4's new step test of v1.0.5 (each sample compared with the last one, for the
+  DCV ramp freeze of his GitHub issue 3): his v1.0.6 alone still shows 1.9 / 1.7 times v2.05's noise in `test_custom_dcv_noise`.
 - zombu4 removed the `1_like_v2.05` build from main in v1.0.0 (it lives on his branch `like-v2.05`); this fork, like his
   main, builds only the fast image.
 - Details, how each bug was reproduced, and the test results: [`firmware/CUSTOM_CHANGES.md`](firmware/CUSTOM_CHANGES.md).
@@ -45,8 +47,7 @@ sh firmware/tools/build_dist.sh /tmp/dist check-ci
 sha256sum /tmp/dist/2_fast/EEVBlog.bin
 ```
 
-`2_fast/EEVBlog.bin` must have the SHA-256 `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes). The same toolchain rebuilds zombu4's v1.0.4
-release byte for byte (`3fc07e80…`).
+`2_fast/EEVBlog.bin` must have the SHA-256 `1aa765f17544def57fd9b08f9c6250c2088d60860ec574568e787bd2263d9a12` (172168 bytes).
 
 ## Flashing a 121GW
 
@@ -67,7 +68,7 @@ release byte for byte (`3fc07e80…`).
    and zombu4's `emulator/tools/bt_upload.py`, see `USER_GUIDE.md`.)
 3. Meter off, card in. Hold **MEM + HOLD** and switch on: the display shows `-IAP-`. Press **SETUP**: `Down` shows, the
    meter writes the firmware and restarts.
-4. At power-on the sub display briefly shows **`C-1.04`**, then the reading.
+4. At power-on the sub display briefly shows **`C-1.06`**, then the reading.
 
 The bootloader is never rewritten, and the data EEPROM (calibration, serial number, settings) is not touched. The
 settings added since v2.05 live in EEPROM bytes v2.05 never uses; an unwritten byte reads as "off" (the battery trim
@@ -131,7 +132,7 @@ expects v2.05's averaging there, about half the update rate).
 
 | Folder | Content |
 |---|---|
-| `firmware/` | new firmware for the 121GW (STM32L152ZD) in hand-written Thumb-2 assembly, loaded by the meter's existing bootloader at 0x08006000 |
+| `firmware/` | new firmware for the 121GW (STM32L152ZD) in hand-written Thumb-2 assembly, loaded at 0x08006000 by the meter's existing bootloader or by the two-part bootloader (branch `bootloader`) |
 | `emulator/` | emulator of the 121GW with a front-panel UI, used to run and test firmware without hardware |
 
 This branch (`main`) is the fast build with the new features below, and the emulator. The build that behaves like the
@@ -139,7 +140,9 @@ original v2.05 with its defects fixed lives on the branch [`like-v2.05`](../../t
 (tags `like205-vA.B.C`). The two-part bootloader (firmware and bootloader updates over Bluetooth without card or keys,
 exFAT cards) lives on the branch [`bootloader`](../../tree/bootloader) in the folder `bootloader/` and has its own releases
 (tags `bl-vA.B.C`); the firmware's comments that name `bootloader/DESIGN.md`, `bootloader/README.md` or
-`bootloader/tools/blimage.py` mean the files of that branch.
+`bootloader/tools/blimage.py` mean the files of that branch. The program that shows the meter live and updates it over
+Bluetooth, the 121GW Companion, lives on the branch [`companion`](../../tree/companion) and has its own releases (tags
+`companion-vA.B.C`).
 
 ## New features of the fast build
 
@@ -158,12 +161,22 @@ exFAT cards) lives on the branch [`bootloader`](../../tree/bootloader) in the fo
 | PT100 / PT1000 | Ω, SETUP page `Pt` | a platinum RTD read as a temperature in °C or °F (IEC 60751) |
 | Battery trim | SETUP page `BAT` | match the battery reading to a reference meter (±10 %, 0.2 % steps) |
 | Firmware over Bluetooth | SETUP page `Ld`, `emulator/tools/bt_upload.py` | send a new `EEVBlog.bin` to the card without removing it |
+| exFAT cards, long file names, card format | SETUP page `For` | reads and writes FAT12 / FAT16 / FAT32 / exFAT cards with long file names; `For` formats the card as exFAT (shown only with the two-part bootloader) |
+| Two-part bootloader support | SETUP page `Ld`, the 121GW Companion | first install of the bootloader over Bluetooth; on request over Bluetooth the meter restarts into the bootloader's update mode (firmware and bootloader updates without card or keys) |
 | Limit test | SETUP pages `Lt`, `Lo`, `HI` | PASS / HI / Lo verdict against captured limits, with beeps |
 | Logging trigger | SETUP pages `tr`, `Ch` | SD records every interval, on a change, or on a limit verdict change |
 | MIN/MAX times | MIN/MAX, pages `tHI`, `tLo`; SD file | when the maximum and the minimum happened, on the meter and in the closing rows of the log file |
 
 How to set and use each one: [`firmware/USER_GUIDE.md`](firmware/USER_GUIDE.md). The like-v2.05 build (branch
 `like-v2.05`) has none of these and behaves like the original firmware apart from the defect fixes.
+
+## Two-part bootloader (updates over Bluetooth)
+
+Once installed (once per meter, from the 121GW Companion over Bluetooth, no SWD and no case opening), the firmware and the bootloader itself are updated from the companion without a card and without holding keys; the card route still works and also reads exFAT cards. How to install and use it, step by step: [`bootloader/README.md`](../../blob/bootloader/bootloader/README.md) (branch `bootloader`, releases `bl-vA.B.C`).
+
+| First install | Firmware update | Format the card as exFAT |
+|---|---|---|
+| <img src="firmware/docs/bootloader/first_install.gif" alt="First install from page Ld-bt" width="220"> | <img src="firmware/docs/bootloader/bt_update.gif" alt="Firmware update over Bluetooth" width="220"> | <img src="firmware/docs/bootloader/format.gif" alt="Setup page For" width="220"> |
 
 ## Downloads
 
@@ -195,7 +208,7 @@ of any meter.
 - `DESIGN.md` design and deviation list, `EEPROM_MAP.md` every EEPROM byte, `ORIGINAL_FIRMWARE_ISSUES.md` the defects
   found in v2.05 (with evidence), `OPTIMIZATIONS.md`, `FEATURES.md` user-visible features (keys, display, storage; implemented in the production build: backlight
   auto-off timer with remembered on/off state, selectable dBm reference, Bluetooth frame rate 2/4/10/20 per second,
-  thermocouple type K/J/T/N/R/S, REL in percent, display level, 12-hour clock, statistics, continuity hold time, limit test, logging trigger, MIN/MAX times, 4–20 mA percent, PT100/PT1000, battery trim), `HARDWARE_TEST.md` checklist for the first run on a meter.
+  thermocouple type K/J/T/N/R/S, REL in percent, display level, 12-hour clock, statistics, continuity hold time, limit test, logging trigger, MIN/MAX times, 4–20 mA percent, PT100/PT1000, battery trim, exFAT cards with long file names and card format, bootloader install and update requests over Bluetooth), `HARDWARE_TEST.md` checklist for the first run on a meter.
 - Status: the fast build is compared with v2.05 in the emulator's test scenarios; its differences are documented deviations
   (`firmware/deviations.txt`) except three display differences still open (battery_low, mem_logging_sd, sd_insert_remove).
   Verified working on a meter.
@@ -205,9 +218,10 @@ Read `firmware/HARDWARE_TEST.md` first; it is the procedure and checklist.
 1. Before flashing: dump the data EEPROM over SWD and save `cal.bin` to an SD card with v2.05 (HARDWARE_TEST.md, "Before
    flashing"). Keep both: they hold the meter's calibration, serial number and settings.
 2. Unpack `firmware-<tag>.zip`. Copy `2_fast/EEVBlog.bin` (or `1_like_v2.05/EEVBlog.bin` of a like-v2.05
-   release), unchanged, to the root of a FAT32 SD card as `EEVBlog.bin`. The bootloader looks for exactly this file name (FAT short names ignore case).
-3. Run the manual's Firmware Update procedure (page 72, summarised in HARDWARE_TEST.md, "Flashing"). The bootloader
-   (0x08000000..0x08005FFF) is not changed; it writes the application from 0x08006000. The data EEPROM is not touched.
+   release), unchanged, to the root of a FAT32 SD card (exFAT once the two-part bootloader is installed) as `EEVBlog.bin`. The bootloader looks for exactly this file name (FAT short names ignore case).
+3. Run the manual's Firmware Update procedure (page 72, summarised in HARDWARE_TEST.md, "Flashing"). This route does not
+   change EEVblog's bootloader (0x08000000..0x08005FFF); it writes the application from 0x08006000. Only the first install
+   of the two-part bootloader (`bootloader/README.md` on the branch `bootloader`) replaces it. The data EEPROM is not touched.
 4. First boot and checks: HARDWARE_TEST.md. To return to v2.05, flash the original image the same way; settings and
    calibration stay readable (same EEPROM layout).
 
@@ -219,7 +233,8 @@ Read `firmware/HARDWARE_TEST.md` first; it is the procedure and checklist.
   kept in a cache, so the internet is needed once) and loads any other `EEVBlog.bin` with **Load firmware
   file…** or by dropping the file on the window; it runs them without any original image (direct boot from the
   application's vector table) and starts with a SYNTHETIC EEPROM: made-up nominal calibration, not the calibration of any
-  meter, with no serial number. Never copy it, or a `cal.bin` written by the emulator, to a meter.
+  meter, with no serial number. Never copy it, or a `cal.bin` written by the emulator, to a meter (since v1.0.6 the
+  meter refuses a `cal.bin` whose serial number differs from its own: "-Err-", nothing written).
 - From the source tree: `sh firmware/tools/build_dist.sh /tmp/dist none && python3 emulator/tools/prepare_data.py --dist /tmp/dist`
   once (fills `emulator/data`), then `python3 emulator/app.py` and open http://127.0.0.1:8121. Needs Python 3 with
   `unicorn` and `capstone`. Own files: `--eeprom`, `--bootloader`, `--option-bytes`, `--v205-image`, `--app`, `--sdcard`;
