@@ -81,7 +81,7 @@ def run_tests(image):
     e.usart2.rx_feed(b'\xF4' + b'0505')
     e.advance(1.0)
     got = frames_after(e, n0)
-    # the mode key opens a function-option page; C-1.03+ (CF-07) then also sends the page text (F7, 11 bytes): not a
+    # the mode key opens a function-option page; C-1.04+ (CF-07) then also sends the page text (FA, 11 bytes): not a
     # version frame, so it is taken out before the comparison
     rest, i = b'', 0
     while i < len(got):
@@ -89,7 +89,7 @@ def run_tests(image):
         x = 0
         for b in f:
             x ^= b
-        if got[i] == 0xF7 and len(f) == 11 and x == 0:
+        if got[i] == 0xFA and len(f) == 11 and x == 0:
             i += 11
             continue
         rest += got[i:i + 1]

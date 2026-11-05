@@ -4,8 +4,8 @@ Everything on this page is in the **fast build** (`2_fast/EEVBlog.bin`). The `1_
 original firmware apart from the defect fixes and has none of these features. At power-on the fast build shows its
 version, `F-1.00` (the release number, v1.0.0); the `1_like_v2.05` build shows `V-2.05` like the original.
 
-**Custom build `C-1.03`.** This tree is the fast build v1.0.2 with the custom changes CF-01..CF-07 (`CUSTOM_CHANGES.md` next to
-this guide); it shows `C-1.03` at power-on. Everything below applies to it; the limit test differs as marked. Three more
+**Custom build `C-1.04`.** This tree is the fast build v1.0.4 with the custom changes CF-01..CF-07 (`CUSTOM_CHANGES.md` next to
+this guide); it shows `C-1.04` at power-on. Everything below applies to it; the limit test differs as marked. Three more
 differences have no page of their own: on a noisy DC voltage (ripple, a noisy supply) the DCV reading is as steady as on
 the original firmware (CF-05), while on a clean source a step still shows at once; and a Bluetooth set-clock frame with
 an impossible date or time is refused (CF-06); and while a SETUP page is shown the meter sends its text over
@@ -29,7 +29,7 @@ setting is kept over a power-off.
 
 The new pages come after the original SETUP pages, in this order:
 
-`bL` (backlight) → `bt` (Bluetooth speed) → `Ld` (firmware over Bluetooth) → `rEL` (REL mode) → `tc` (thermocouple type, TEMP only) → `dSP` (display
+`bL` (backlight) → `bt` (Bluetooth speed) → `Ld` (firmware over Bluetooth) → `For` (format the card as exFAT, only with the new bootloader) → `rEL` (REL mode) → `tc` (thermocouple type, TEMP only) → `dSP` (display
 level) → `bH` (continuity hold, BEEP only) → `LP` (4–20 mA view, DC mA only) → `Pt` (PT100 / PT1000 view, Ω only) → `CL` (12 / 24-hour clock) → `Lt`, `Lo`, `HI` (limit test; the verdict page
 while the test is on) → `tr`, `Ch` (logging trigger) → back to the first page (while MIN/MAX is on, the statistics pages
 `n` and `Sd` and the time pages `tHI` and `tLo` come before it)
@@ -121,7 +121,7 @@ Tip: `dSP 2` while adjusting a trimmer or watching something warm up or charge; 
 - While the test is on the range stays fixed (RANGE is refused); turning the dial ends the test. The limits are kept
   until the meter is switched off.
 - Switching on is refused (refusal beep) until both limits are captured in the present function and range.
-- Custom build (`C-1.03`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
+- Custom build (`C-1.04`): the test runs on its own. Switching it on is refused while REL, HOLD, PEAK or MIN/MAX is on, and while it is
   on those keys are refused (refusal beep); switch the test off first. A capture while the display shows `OFL` is refused
   (nothing is stored). After the test, and after turning the dial, the range lock is what it should be (auto, or the
   single DIODE range).
@@ -169,6 +169,16 @@ Tip: with `L4-20` a sensor's output reads directly in percent of its range, for 
 - **Then update as usual:** switch off, hold HOLD and MEM while switching on, then press SETUP.
 - Logging must be off. The meter keeps measuring during the transfer. Leaving the page stops it; the old `EEVBlog.bin`
   stays until a new file has arrived complete and checked.
+
+## Format the SD card (exFAT)
+
+- **Where:** SETUP page `For`, right after `Ld-bt`.  It appears only when the meter has the new two-part bootloader
+  (`bootloader/README.md`): EEVblog's original bootloader cannot read exFAT, so its card update would stop working.
+- **How:** hold SETUP until `Fr no` blinks, press REL (or PEAK) for `Fr yE`, hold SETUP again.  `Fr --` while it works,
+  then `Fr oK`.  **Everything on the card is erased.**  `FrE n` means the format failed (n = the FatFs result),
+  `FrE L`: refused because logging is running or calibration mode is on.
+- The meter reads and writes FAT12, FAT16, FAT32 and exFAT cards, with long file names (cards larger than 32 GB come
+  formatted as exFAT).
 
 ## Battery voltage trim
 

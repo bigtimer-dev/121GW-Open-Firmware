@@ -1,14 +1,17 @@
-# Custom build C-1.03
+# Custom build C-1.04
 
-Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.0.2 (main at commit d6651ed,
-merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.03`** at
+Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.0.4 (main at commit 0319609,
+merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.04`** at
 power-on and answers the Bluetooth version request with it.
 
 History: C-0.94 (CF-01..CF-04 on v0.9.4, commit 3e7953d) was flashed on a real 121GW on 2026-11-03: it boots, shows
 `C-0.94` and measures. C-0.96 merged zombu4's v0.9.5 / v0.9.6 (auto-hold at 0, DCV window, 4-20 mA loop view, PT100 /
 PT1000 view, thermocouples N / R / S) and added CF-05. C-1.02 merges v0.9.7 .. v1.0.2 (IMP-27 battery trim, OF-30 and
 LowZ bargraph fixes, IMP-28 firmware file over Bluetooth to the SD card, IMP-29 FatFs R0.16, IMP-30 version over
-Bluetooth, IMP-31 every set-clock frame applied) and adds CF-06. C-1.03 adds CF-07 (the SETUP page text over Bluetooth).
+Bluetooth, IMP-31 every set-clock frame applied) and adds CF-06. C-1.03 adds CF-07 (the SETUP page text over Bluetooth). C-1.04 merges v1.0.3 / v1.0.4 (exFAT and long file
+names, page For, IMP-33 SD write wait, IMP-34 SCR read, IMP-35 no main-display splash, the bootloader commands 0x91 /
+0x92 and the first install of the two-part bootloader) and moves the CF-07 frame from F7 to FA (v1.0.4 uses F7 for the
+bootloader version answer).
 
 Since v1.0.0 zombu4's main builds only the fast image (the like-v2.05 build moved to his branch `like-v2.05`, and the
 `LOOP_V205` switches are gone from the sources); the custom changes, which were inside `.if LOOP_V205 == 0` blocks, are
@@ -95,7 +98,7 @@ the open firmware's pages (`bL`, `bt`, `rEL`, `tc`, `dSP`, `bH`, `CL`, `Lt`, `Lo
 The status frame is left exactly as it is (v2.05 apps keep working). While a SETUP page is shown, the meter now also
 sends a separate 11-byte frame with what the small display shows:
 
-    F7 item c0 c1 c2 c3 c4 flags units 00 xor
+    FA item c0 c1 c2 c3 c4 flags units 00 xor
       item    the setup item (the page); 0 = back to the normal display (sent once)
       c0..c4  the five characters drawn at the small display's positions 0..4 (ASCII, as lcd_draw_glyph gets them)
       flags   bits 0..2 decimal point (digits after it, 0..4), bit 4 minus sign, bit 5 the page is being edited
@@ -110,7 +113,9 @@ sends a separate 11-byte frame with what the small display shows:
 - While a value blinks during an edit, the blank phase keeps the text of the last visible phase, so the app never
   shows a blank value.
 - Nothing is sent on the page `Ld` (item 39), which owns the link for the file transfer.
-- An app that does not know `0xF7` skips it, as it already skips the echoes and the `F6` version answer.
+- An app that does not know `0xFA` skips it, as it already skips the echoes and the `F6` version answer.
+- C-1.03 sent this frame with the first byte `F7`. zombu4's v1.0.4 uses `F7` for its bootloader version answer
+  (`ble/blcmd.s`, key code 0x92), so from C-1.04 the frame starts with `FA`. The Linux app reads both.
 
 `test_custom_subtext.py` walks every page in seven dial positions and compares each frame with the emulated LCD, checks
 that the status frames are unchanged, the single item-0 frame, the silence on `Ld` and on the normal display, and an
@@ -118,7 +123,7 @@ edit (edit bit, no blank phase, a REL step sent at the next frame build). The Li
 each page's name, value and an explanation from it.
 
 zombu4's `test_ble_version.py` is adjusted: its T2 sends the remote mode key, which in DCV opens a function-option page,
-so C-1.03 also sends that page's `F7` frame after the key echo. T2 now takes valid `F7` frames out before it checks
+so C-1.03 and later also send that page's text frame after the key echo. T2 now takes valid `FA` frames out before it checks
 "echo of the key frame, no version frame"; any other byte still fails it.
 
 ## Emulator fixes (emulator/app.py, emulator/ui/server.py, emulator/API.md)
@@ -134,7 +139,7 @@ so C-1.03 also sends that page's `F7` frame after the key echo. T2 now takes val
 - E-05 The static file check used a bare prefix test (`startswith(HERE)`), which a sibling directory such as `ui2/`
   also passed. Now `HERE + os.sep`.
 - E-06 (addition) The page has a panel "Bluetooth: SETUP page text": it decodes what the meter sends (status frames
-  counted, every CF-07 `F7` frame listed with the page name, text, decimal point, units and edit flag; also in `/state`
+  counted, every CF-07 `FA` frame listed with the page name, text, decimal point, units and edit flag; also in `/state`
   as `ble`).
 - E-07 (addition) `--host ADDRESS` serves the page also on that address of the computer (e.g. its LAN IP) for another
   device on the network. Default as before: 127.0.0.1 only. With it, requests must still name 127.0.0.1, localhost,
@@ -151,23 +156,23 @@ so C-1.03 also sends that page's `F7` frame after the key echo. T2 now takes val
 ## Verification
 
 Toolchain: GNU binutils 2.46.0.20260210 (as zombu4's CI), unicorn 2.1.4 / capstone 5.0.9 for the emulator. The untouched
-v1.0.2 tree (d6651ed) rebuilds byte-identical to zombu4's v1.0.2 release (`690a3825…9905`), so the toolchain matches.
+v1.0.4 tree (0319609) rebuilds byte-identical to zombu4's v1.0.4 release (`3fc07e80…2cdd`), so the toolchain matches.
 
-| Check | Custom C-1.03 | v1.0.2 unmodified |
+| Check | Custom C-1.04 | v1.0.2 unmodified |
 |---|---|---|
 | `make check-ci` (check_image, check_hy, check_gpio) | PASS | PASS |
 | Image vs zombu4's release | (custom) | byte-identical |
-| The whole emulator suite, 31 scripts (zombu4's, incl. his new `test_battery_trim`, `test_ble_version`, `test_bt_upload`, `test_lowz_spike`, `test_sd_large_card`, plus this fork's) | all pass | zombu4's: his CI |
+| The whole emulator suite, 32 scripts (zombu4's, incl. `test_sd_scr` of v1.0.4, plus this fork's) | all pass | zombu4's: his CI |
 | `test_custom_fixes.py` (CF-01 keys / switch-on / PEAK, CF-02, CF-03, 26 checks) | all pass | 14 fail (the bugs are still there) |
 | `test_custom_fattime.py` (`get_fattime` by direct execution, 14 calendar inputs, CF-04) | all pass | 6 fail |
 | `test_custom_dcv_noise.py` (CF-05: noise at 60 / 120 counts, a 1 V -> 3 V step under noise) | all pass | the 2 noise checks fail (1.95 x, 2.50 x) |
 | `test_clock_frame.py` (set-clock frame 0xF8: checksum, echo, clock and SETUP pages, every frame applied (IMP-31), CF-06 four out-of-calendar frames) | all pass | the 4 CF-06 checks fail: the clock takes the values |
-| `test_custom_subtext.py` (CF-07: every SETUP page of dials 2..8 sent as on the LCD, status frames intact, item 0 once then quiet, nothing on Ld, an edit on bt) | all pass | no F7 frames at all |
+| `test_custom_subtext.py` (CF-07: every SETUP page of dials 2..8 sent as on the LCD, status frames intact, item 0 once then quiet, nothing on Ld, an edit on bt) | all pass | no FA frames at all |
 | `test_custom_server.py` (emulator server / command checks, E-01..E-05) | all pass | n/a |
-| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.03`, mode / page / HOLD / REL unchanged | `F-1.02` |
+| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.04`, mode / page / HOLD / REL unchanged | `F-1.02` |
 | Same request sent to C-0.96 (older firmware) | echoed, no answer, nothing changed | n/a |
-| Power-on splash | `C-1.03` | `F-1.02` |
-| SETUP page text (F7) decoded by the Linux app (`gw121/setup_pages.py`) on dials 2 and 5 | every page named, value as on the LCD | n/a |
+| Power-on version (sub display) | `C-1.04` | `F-1.02` |
+| SETUP page text (FA) decoded by the Linux app (`gw121/setup_pages.py`) on dials 2 and 5 | every page named, value as on the LCD | n/a |
 
 Run them from the repository root with Python 3, `unicorn` and `capstone` (as the emulator), after a build
 (`firmware/build/EEVBlog.bin`, map next to it). Give parallel emulator runs separate `TMPDIR`s: `test_backlight_timer.make` writes a
@@ -177,7 +182,7 @@ The emulator runs the real image instruction by instruction with modelled periph
 settling, real key bounce, the battery, the LCD glass and the real SD cards are models or absent. Run the checks of
 `HARDWARE_TEST.md` and the first checks of the main `README.md` on the meter.
 
-SHA-256 of the custom fast image C-1.03: `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes).
-Earlier: C-1.02 (tag `custom-c1.02`) `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes),
+SHA-256 of the custom fast image C-1.04: `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes).
+Earlier: C-1.03 (tag `custom-c1.03`) `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes), C-1.02 (tag `custom-c1.02`) `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes),
 C-0.96 (tag `custom-c0.96`) `6f090b5d8d00b039aa2de4ad1338eede998c86d1d3d32a8ea88a0fdec3840497` (152880 bytes),
 C-0.94 (tag `custom-c0.94`) `355c6ff0485987bd781f943a971da6e311018afdea8976f156ccc34cf2842580` (148228 bytes).

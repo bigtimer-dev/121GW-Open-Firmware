@@ -1,15 +1,16 @@
-# 121GW Open Firmware: custom build C-1.03 (bigtimer-dev fork)
+# 121GW Open Firmware: custom build C-1.04 (bigtimer-dev fork)
 
-This is a fork of [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) at **v1.0.2** (zombu4's
-commit `d6651ed`, merged) with six firmware fixes, one Bluetooth addition and emulator changes on top. The meter shows
-**`C-1.03`** at power-on (and answers the Bluetooth version request with it). Earlier builds: `C-0.94` (tag
-`custom-c0.94`, ran on a real 121GW from 2026-11-03), `C-0.96` (tag `custom-c0.96`) and `C-1.02` (tag `custom-c1.02`).
+This is a fork of [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) at **v1.0.4** (zombu4's
+commit `0319609`, merged) with six firmware fixes, one Bluetooth addition and emulator changes on top. The meter shows
+**`C-1.04`** at power-on (and answers the Bluetooth version request with it). Earlier builds: `C-0.94` (tag
+`custom-c0.94`, ran on a real 121GW from 2026-11-03), `C-0.96` (tag `custom-c0.96`), `C-1.02` (tag `custom-c1.02`) and `C-1.03` (tag `custom-c1.03`, ran on the
+real 121GW from 2026-11-04).
 
 The firmware port and the emulator are zombu4's work; this fork only adds the changes listed below. zombu4's licence
 ([`LICENSE`](LICENSE), unchanged) covers everything here, including its terms on commercial use. This is a personal
 build, not an official zombu4 or EEVblog release. Flashing is at your own risk.
 
-## What is different from zombu4's v1.0.2
+## What is different from zombu4's v1.0.4
 
 | | Fix | Files |
 |---|---|---|
@@ -19,10 +20,10 @@ build, not an official zombu4 or EEVblog release. Flashing is at your own risk.
 | CF-04 | **SD log file times from a bad clock read.** Hour > 23, minute or second > 59 or year > 99 were packed unchecked into the FAT date and time. Now any bad field gives 1980-01-01 00:00, as an unread clock already did. | `sd/diskio.s` |
 | CF-05 | **Steady DCV on a noisy input.** zombu4's DCV window (v0.9.5, IMP-23) restarts on a "step" of a fixed ~98 counts. On a noisy source (ripple, a noisy supply) noise pairs crossed that threshold all the time, so most values shown were 4-sample means: in the emulator the display was 1.7 to 2.5 times as noisy as on v2.05. The threshold now follows the measured noise (6 × its mean absolute deviation, at least the fixed value): as steady as v2.05 on a noisy source, and a real step still shows at once (75 ms). On a clean source nothing changes. | `mdc/dcvavg.s` |
 | CF-06 | **Bluetooth set-clock frame range check.** A frame with a good checksum but an impossible date or time (month 13, day 0, hour 24, minute 60, ...) was converted to BCD and written to the clock chip as it came (v2.05 code; since v1.0.1 every such frame is applied, not only the first). Now refused like a bad checksum: not echoed, not written. | `ble/commands.s` |
-| CF-07 | **SETUP page text over Bluetooth** (addition). On most SETUP pages (all the open firmware's new pages and v2.05's beeper, ID and logging-interval pages) the status frame sends zeros for the small display, so an app can't tell what the meter shows. While a SETUP page is shown the meter now also sends an 11-byte frame `F7` with the page number, the five characters, decimal point, sign, unit icons and an "editing" flag. The 19-byte status frame is unchanged; apps that don't know `F7` skip it. | `ble/subtext.s`, `lcd/draw.s`, `ble/packet.s` |
+| CF-07 | **SETUP page text over Bluetooth** (addition). On most SETUP pages (all the open firmware's new pages and v2.05's beeper, ID and logging-interval pages) the status frame sends zeros for the small display, so an app can't tell what the meter shows. While a SETUP page is shown the meter now also sends an 11-byte frame `FA` (`F7` in C-1.03) with the page number, the five characters, decimal point, sign, unit icons and an "editing" flag. The 19-byte status frame is unchanged; apps that don't know `FA` skip it. | `ble/subtext.s`, `lcd/draw.s`, `ble/packet.s` |
 | E-01..E-05 | **Emulator:** speed NaN / inf / ≤ 0 refused (it stopped the emulation thread); the web UI refuses requests from other web pages (Host and Origin checks); negative or non-numeric `Content-Length` refused and `/input` capped at 64 KiB; upload names `.` / `..`; static file path check. E-06: a "Bluetooth: SETUP page text" panel on the page; E-07: `--host ADDRESS` to open the page from another device (opt-in). | `emulator/app.py`, `emulator/ui/server.py`, `emulator/ui/index.html` |
 
-- CF-01..CF-04 and CF-06 are still present in zombu4's v1.0.2; the tests below fail on it.
+- CF-01..CF-04 and CF-06 are still present in zombu4's v1.0.4 (the tests below fail on v1.0.2; the code is unchanged in v1.0.4).
 - zombu4 removed the `1_like_v2.05` build from main in v1.0.0 (it lives on his branch `like-v2.05`); this fork, like his
   main, builds only the fast image.
 - Details, how each bug was reproduced, and the test results: [`firmware/CUSTOM_CHANGES.md`](firmware/CUSTOM_CHANGES.md).
@@ -44,8 +45,8 @@ sh firmware/tools/build_dist.sh /tmp/dist check-ci
 sha256sum /tmp/dist/2_fast/EEVBlog.bin
 ```
 
-`2_fast/EEVBlog.bin` must have the SHA-256 `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes). The same toolchain rebuilds zombu4's v1.0.2
-release byte for byte (`690a3825…`).
+`2_fast/EEVBlog.bin` must have the SHA-256 `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes). The same toolchain rebuilds zombu4's v1.0.4
+release byte for byte (`3fc07e80…`).
 
 ## Flashing a 121GW
 
@@ -66,7 +67,7 @@ release byte for byte (`690a3825…`).
    and zombu4's `emulator/tools/bt_upload.py`, see `USER_GUIDE.md`.)
 3. Meter off, card in. Hold **MEM + HOLD** and switch on: the display shows `-IAP-`. Press **SETUP**: `Down` shows, the
    meter writes the firmware and restarts.
-4. At power-on the sub display briefly shows **`C-1.03`**, then the reading.
+4. At power-on the sub display briefly shows **`C-1.04`**, then the reading.
 
 The bootloader is never rewritten, and the data EEPROM (calibration, serial number, settings) is not touched. The
 settings added since v2.05 live in EEPROM bytes v2.05 never uses; an unwritten byte reads as "off" (the battery trim
@@ -135,7 +136,10 @@ expects v2.05's averaging there, about half the update rate).
 
 This branch (`main`) is the fast build with the new features below, and the emulator. The build that behaves like the
 original v2.05 with its defects fixed lives on the branch [`like-v2.05`](../../tree/like-v2.05) and has its own releases
-(tags `like205-vA.B.C`).
+(tags `like205-vA.B.C`). The two-part bootloader (firmware and bootloader updates over Bluetooth without card or keys,
+exFAT cards) lives on the branch [`bootloader`](../../tree/bootloader) in the folder `bootloader/` and has its own releases
+(tags `bl-vA.B.C`); the firmware's comments that name `bootloader/DESIGN.md`, `bootloader/README.md` or
+`bootloader/tools/blimage.py` mean the files of that branch.
 
 ## New features of the fast build
 

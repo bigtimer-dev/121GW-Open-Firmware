@@ -8,7 +8,7 @@
 @ shows.  The 19-byte frame stays exactly as it is (v2.05 apps keep working); instead, while a setup page is shown, a
 @ separate 11-byte frame carries what the sub display shows:
 @
-@     F7 item c0 c1 c2 c3 c4 flags units 00 xor
+@     FA item c0 c1 c2 c3 c4 flags units 00 xor
 @       item   set_item (0x20008037): the page (1..39, 100 = MEM view); 0 = back to the normal display (sent once)
 @       c0..c4 the five characters drawn at the sub-display positions 0..4, as lcd_draw_glyph got them (ASCII; ' ',
 @              '-', '=', 0xFF all segments)
@@ -18,7 +18,7 @@
 @       xor    XOR of the ten bytes before it (the XOR of all eleven bytes is zero)
 @
 @ It is queued after a status frame is built (fn_0800C5D2) and sent between status frames (ble_tx_queue_put, as the
-@ command echoes and the version answer); an app that does not know 0xF7 skips it as it skips those.  Sent when anything
+@ command echoes and the version answer); an app that does not know 0xFA skips it as it skips those.  Sent when anything
 @ in it changes, else again every SUBTXT_REFRESH builds so that an app that connects on a page learns it.  While the
 @ page value blinks during an edit, the blank phase (set_edit and not set_edit_blink, fn_0801797C) keeps the text of
 @ the last visible phase.  Not sent on the page Ld (item 39), which owns the link for the file transfer.
@@ -37,6 +37,8 @@
     .equ st_item,           v_20008037      @ set_item / ble_item
     .equ st_edit,           v_2000806E      @ set_edit
     .equ st_edit_blink,     v_2000806F      @ set_edit_blink (0 = blank phase while set_edit)
+    .equ SUBTXT_START,      0xFA            @ first byte (C-1.03 used 0xF7, which zombu4's v1.0.4 gave to the
+                                            @ bootloader version answer, ble/blcmd.s)
     .equ SUBTXT_LEN,        11
     .equ SUBTXT_REFRESH,    4               @ builds between repeats of an unchanged frame
     .equ SUBTXT_ITEM_BFT,   39              @ page Ld: no extra frames
@@ -55,7 +57,7 @@ ble_sub_cnt:    .space 1
     .section .text.ble.subtext, "ax", %progbits
 
 @ -----------------------------------------------------------------------------
-@ ble_subtext_frame - queue the sub-display text frame (F7) when it changed or is due again
+@ ble_subtext_frame - queue the sub-display text frame (FA) when it changed or is due again
 @ Replaces : nothing in v2.05 (new; called by fn_0800C5D2 after build_status_packet_19b)
 @ In/Out   : - / -
 @ Clobbers : r0-r3, r12, flags (AAPCS)
@@ -141,7 +143,7 @@ FUNC ble_subtext_frame
     orrne r2, r2, #0x40                     @ Ohm
     strb r2, [r1, #6]                       @ units
 .Lsx_build:
-    movs r0, #0xF7
+    movs r0, #SUBTXT_START
     strb r0, [r4, #0]
     strb r5, [r4, #1]
     ldr r1, =ble_sub_vis

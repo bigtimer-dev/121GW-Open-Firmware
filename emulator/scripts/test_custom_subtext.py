@@ -1,13 +1,13 @@
-"""Emulator test of CF-07: the SETUP page text frame F7 (firmware/src/ble/subtext.s, firmware/CUSTOM_CHANGES.md).
+"""Emulator test of CF-07: the SETUP page text frame FA (firmware/src/ble/subtext.s, firmware/CUSTOM_CHANGES.md).
 
     python -I emulator/scripts/test_custom_subtext.py [image]      default firmware/build/EEVBlog.bin
 
   S1 every page: in each dial position SETUP is pressed until the item is 0 again; on every page (item != 0, not Ld) the
-     last F7 frame names that item and its five characters and decimal point show what the LCD's sub display shows
+     last FA frame names that item and its five characters and decimal point show what the LCD's sub display shows
      (compared as seven-segment patterns of the firmware's font: the LCD decoder reads 'b' as 'B' and 'O' as '0').
-  S2 the status frames: every F2 frame keeps its 19 bytes and checksum while F7 frames are sent.
-  S3 leaving the pages: one F7 with item 0, then no F7 for 3 s.
-  S4 page Ld: no F7 frames (the page owns the link for the file transfer).
+  S2 the status frames: every F2 frame keeps its 19 bytes and checksum while FA frames are sent.
+  S3 leaving the pages: one FA with item 0, then no FA for 3 s.
+  S4 page Ld: no FA frames (the page owns the link for the file transfer).
   S5 an edit (page bt): the frames carry the edit bit, the text never shows the blank blink phase, and a REL step is sent
      with the new value at the next frame build (within 1 s).
 """
@@ -40,7 +40,7 @@ def seg(c):
 
 
 class Stream:
-    """Splits what the meter sent into status frames (F2, 19 bytes) and text frames (F7, 11 bytes)."""
+    """Splits what the meter sent into status frames (F2, 19 bytes) and text frames (FA, 11 bytes)."""
 
     def __init__(self, e):
         self.e, self.seen, self.buf = e, len(e.ble_rx), b''
@@ -60,7 +60,7 @@ class Stream:
                     self.f2 += 1
                     i += 19
                     continue
-            if b == 0xF7 and i + 11 <= len(self.buf):
+            if b == 0xFA and i + 11 <= len(self.buf):
                 x = 0
                 for v in self.buf[i:i + 11]:
                     x ^= v
@@ -68,7 +68,7 @@ class Stream:
                     out.append(self.buf[i:i + 11])
                     i += 11
                     continue
-            if b in (0xF2, 0xF7) and i + 19 > len(self.buf):
+            if b in (0xF2, 0xFA) and i + 19 > len(self.buf):
                 break                                   # wait for the rest
             i += 1
         self.buf = self.buf[i:]
@@ -114,11 +114,11 @@ def walk(image, dial, mA=False):
         if item == 0:
             break
         if item == ITEM_LD:
-            T.check('dial %d page Ld: no F7 frame' % dial, not new, '%d frames' % len(new))
+            T.check('dial %d page Ld: no FA frame' % dial, not new, '%d frames' % len(new))
             continue
         last = [f for f in new if f[1] == item]
         if not last:
-            T.check('dial %d item %d: an F7 frame' % (dial, item), False, 'none of %d frames' % len(new))
+            T.check('dial %d item %d: an FA frame' % (dial, item), False, 'none of %d frames' % len(new))
             continue
         f = last[-1]
         want, dp, shown = lcd_sub(e)
@@ -128,14 +128,14 @@ def walk(image, dial, mA=False):
         T.check('dial %d item %2d %-7r frame %-7r dp %d' % (dial, item, shown, chars, fdp),
                 want == got and dp == fdp, 'lcd %r dp %d' % (shown, dp))
         pages.append(item)
-    # leaving: one F7 with item 0, then quiet
+    # leaving: one FA with item 0, then quiet
     zero = [f for f in s.f7 if f[1] == 0]
-    T.check('dial %d back to item 0: one F7 with item 0' % dial, len(zero) == 1, '%d' % len(zero))
+    T.check('dial %d back to item 0: one FA with item 0' % dial, len(zero) == 1, '%d' % len(zero))
     n7 = len(s.f7)
     for _ in range(15):
         e.advance(0.2)
         s.poll()
-    T.check('dial %d no F7 for 3 s on the normal display' % dial, len(s.f7) == n7, '%d more' % (len(s.f7) - n7))
+    T.check('dial %d no FA for 3 s on the normal display' % dial, len(s.f7) == n7, '%d more' % (len(s.f7) - n7))
     T.check('dial %d status frames kept coming (%d)' % (dial, s.f2), s.f2 > 20)
     return e, s, pages
 

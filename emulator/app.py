@@ -133,7 +133,7 @@ UNIT_BITS = ((1, 'V'), (2, 'A'), (4, 'm'), (8, 'k'), (16, 'Hz'), (32, 'dB'), (64
 
 
 class BleView:
-    """Splits the bytes the meter sent into status frames (F2, 19 bytes) and SETUP text frames (F7, 11 bytes)."""
+    """Splits the bytes the meter sent into status frames (F2, 19 bytes) and SETUP text frames (FA, 11 bytes; F7 in C-1.03)."""
 
     def __init__(self):
         self.seen, self.buf, self.f2, self.lines, self.now = 0, b'', 0, [], None
@@ -146,7 +146,7 @@ class BleView:
         i, buf = 0, self.buf
         while i < len(buf):
             b = buf[i]
-            n = 19 if b == 0xF2 else 11 if b == 0xF7 else 0
+            n = 19 if b == 0xF2 else 11 if b in (0xFA, 0xF7) else 0
             if n and i + n > len(buf):
                 break
             x = 0
@@ -173,7 +173,7 @@ class BleView:
         page = SETUP_PAGES.get(item, 'item %d' % item) if item else 'normal display (left SETUP)'
         self.now = None if item == 0 else {'item': item, 'page': page, 'text': shown, 'edit': bool(flags & 0x20),
                                            'units': u}
-        self.lines.append('%10.1f ms  F7  item %3d  %-22s  %-8r %s%s  [%s]' % (
+        self.lines.append('%10.1f ms  FA  item %3d  %-22s  %-8r %s%s  [%s]' % (
             t_ms, item, page, shown, u, '  EDIT' if flags & 0x20 else '', f.hex(' ')))
 
 
@@ -185,6 +185,7 @@ class Emulator:
     # SD card image (emu/sdcard.py): path of the raw image or None for an empty socket, and its size when it is created
     sdcard_path = None
     sdcard_mb = 512
+    flash_allow_protected = False       # True only in tests of the bootloader install (FLASH brick guard off)
 
     def __init__(self, inputs=None, app=None, eeprom=None, speed=1.0, hw_cal=None, *, bootloader=None, option_bytes=None,
                  v205_image=None, tables=None, firmware=None):
@@ -239,7 +240,7 @@ class Emulator:
     def build(self):
         m = self.m = Machine()
         SCS(m)
-        self.rcc, self.pwr, self.flash = RCC(), PWR(), FLASH(allow_protected=False)
+        self.rcc, self.pwr, self.flash = RCC(), PWR(), FLASH(allow_protected=self.flash_allow_protected)
         m.add_periph(0x40023800, 0x400, self.rcc)
         m.add_periph(0x40007000, 0x400, self.pwr)
         m.add_periph(0x40023C00, 0x400, self.flash)
