@@ -28,11 +28,11 @@
 @     defaults (bfl_owner): pace 13, gap 2.
 
 @ Requests (bft.s framing, answered with type 0x82 as ble/bftsd.s):
-@     0x18 LINK    pace(1) stop(1) trim(1, signed) [gap(1)]   pace = bytes per 10 ms tick, 0 = unpaced (0 .. 64);
+@     0x1A LINK    pace(1) stop(1) trim(1, signed) [gap(1)]   pace = bytes per 10 ms tick, 0 = unpaced (0 .. 64);
 @                  stop = 1 or 2 stop bits; trim = BRR steps added to the BRR computed at the start of the link
 @                  (-32 .. 32); gap = an idle frame after every gap bytes, 0 = none (0 .. 32; 0 if left out).
 @                  field = the BRR that applies.  The new stop bits and BRR take effect once this answer has left.
-@     0x19 STREAM  first(2) count(2) size(1)          pieces first .. first + count - 1 of size bytes (1 .. 232) of the
+@     0x1B STREAM  first(2) count(2) size(1)          pieces first .. first + count - 1 of size bytes (1 .. 232) of the
 @                  staged data; count is cut at the end of the data.  field = number of pieces that follow.
 @ Piece: B5 5B 83 idx(2) len(1) data(len) crc16(2), CRC-16/CCITT-FALSE over 83 .. data, as an answer.  Any other request
 @     ends a stream and drops what is still queued of it.

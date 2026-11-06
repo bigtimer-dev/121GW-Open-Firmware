@@ -33,11 +33,11 @@ import btft  # noqa: E402
 
 def link_packet(seq, pace, stop, trim, gap=None):
     p = struct.pack('<BBb', pace, stop, trim) + (bytes([gap]) if gap is not None else b'')
-    return btft.packet(0x18, seq, p)
+    return btft.packet(0x1A, seq, p)
 
 
 def stream_packet(seq, first, count, size):
-    return btft.packet(0x19, seq, struct.pack('<HHB', first, count, size))
+    return btft.packet(0x1B, seq, struct.pack('<HHB', first, count, size))
 
 
 def pieces(raw):
@@ -96,7 +96,7 @@ def run_tests(image):
         T.check('size %d: 0x22' % size, F.status_of(a) == 0x22, repr(a))
     a = link.send(stream_packet(f.next_seq(), 128, 1, 64))
     T.check('first beyond the end (128 x 64 = 8192): 0x22', F.status_of(a) == 0x22, repr(a))
-    a = link.send(btft.packet(0x19, f.next_seq(), b'\x00\x00\x01'))
+    a = link.send(btft.packet(0x1B, f.next_seq(), b'\x00\x00\x01'))
     T.check('short payload: 0x22', F.status_of(a) == 0x22, repr(a))
     ans, got, _, _ = stream(e, link, f, 80, 100, 100, 0.5)
     T.check('count cut at the end: field 2 (pieces 80, 81 of 100 bytes)', ans is not None and ans.field == 2, repr(ans))

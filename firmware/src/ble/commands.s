@@ -36,6 +36,7 @@
     .equ BLE_VERSION_LEN,   7
     .equ BLE_BLUPD_CODE,    0x91             @ restart into update mode (F4 39 31 39 31; ble/blcmd.s)
     .equ BLE_BLINFO_CODE,   0x92             @ bootloader version request (F4 39 32 39 32; ble/blcmd.s)
+    .equ BLE_GOTO_CODE,     0xC0             @ CF-09: 0xC0 + item = go to that SETUP page (F4 43 30 43 30 = item 0)
 
     .section .rodata.ble.version, "a", %progbits
 @ ble_version_frame - answer to the version request: F6, the five characters the meter shows at power-on (config.inc
@@ -86,7 +87,8 @@ ENDFUNC fn_0800C308
 @            checksum clears ble_clock_bad (never read).  0xF4 frame: pairs at offsets 1 and 3 must be equal; then
 @            echo, key_remote_req = 1 and key_remote_code = the code (decoded by fn_08014AE6 in KEY); code 0x90 is
 @            answered with ble_version_frame instead (FEATURES.md 2.11 stage 3), 0x91 and 0x92 by ble/blcmd.s
-@            (bootloader update mode, bootloader version).  Any other first byte is ignored.
+@            (bootloader update mode, bootloader version), 0xC0 .. 0xFF by ble/setgoto.s (CF-09: go to SETUP page
+@            code - 0xC0).  Any other first byte is ignored.
 @ -----------------------------------------------------------------------------
 FUNC fn_0800C332
     push {r3, r4, r5, r6, r7, r8, r9, r10, r11, lr} @ 0800C332
@@ -223,7 +225,12 @@ FUNC fn_0800C332
     bne 3f
     bl blcmd_update_mode                    @ 0x91: restart into the bootloader's update mode (returns only without it)
     b .L0800C46C
-3:  cmp r0, #BLE_VERSION_CODE
+3:  cmp r0, #BLE_GOTO_CODE
+    blo 4f
+    subs r0, #BLE_GOTO_CODE
+    bl set_goto                             @ CF-09: 0xC0 + item: go straight to that SETUP page (ble/setgoto.s)
+    b .L0800C46C
+4:  cmp r0, #BLE_VERSION_CODE
     bne 1f
     @ FEATURES.md 2.11 stage 3: code 0x90 asks for the firmware version.  It is answered with ble_version_frame and is
     @ not handed to the key routine (a remote key restarts the backlight countdown and clears a pending message).

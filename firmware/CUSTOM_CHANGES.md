@@ -1,7 +1,7 @@
-# Custom build C-1.07
+# Custom build C-1.08
 
-Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.0.6 (release tag v1.0.6,
-merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.07`** at
+Base: [zombu4/121GW-Open-Firmware](https://github.com/zombu4/121GW-Open-Firmware) v1.1.2 (release tag v1.1.2,
+merged), the fast build `2_fast/EEVBlog.bin`. Personal build, not an official release. The meter shows **`C-1.08`** at
 power-on and answers the Bluetooth version request with it.
 
 History: C-0.94 (CF-01..CF-04 on v0.9.4, commit 3e7953d) was flashed on a real 121GW on 2026-11-03: it boots, shows
@@ -14,7 +14,11 @@ names, page For, IMP-33 SD write wait, IMP-34 SCR read, IMP-35 no main-display s
 bootloader version answer). C-1.06 merges v1.0.5 / v1.0.6 (the DCV ramp-freeze fix of GitHub issue 3, OF-66 SD
 unaligned DMA, IMP-36 SD card files and IMP-37 settings over Bluetooth on page Ld, the cal.bin restore that v1.0.4 /
 v1.0.5 refused, IMP-38 restore only to the matching serial, OF-67 long MEM at power-on) and re-does CF-05 on the new
-step test. C-1.07 adds CF-08 (fast and clean card reads over Bluetooth on page Ld).
+step test. C-1.07 adds CF-08 (fast and clean card reads over Bluetooth on page Ld). C-1.08 merges v1.0.7 .. v1.1.2 (faster resistance
+auto-range, OF-68 SD cards above 4 GiB, IMP-39 card format over Bluetooth (0x15), IMP-40 slow card writes confirmed with
+ACMD22, timed-out writes repeated, IMP-41 card sessions on the PLL at 32 MHz with OF-69 / OF-70 (GitHub issues 5 and 6),
+IMP-42 restart into update mode (request 0x18)) and moves the CF-08 requests LINK / STREAM from 0x18 / 0x19 to
+0x1A / 0x1B (v1.1.2 uses 0x18).
 
 Since v1.0.0 zombu4's main builds only the fast image (the like-v2.05 build moved to his branch `like-v2.05`, and the
 `LOOP_V205` switches are gone from the sources); the custom changes, which were inside `.if LOOP_V205 == 0` blocks, are
@@ -160,10 +164,10 @@ What the meter does now while the page Ld owns the link (status frames are off t
   budget, `ble_tx_tick` restarts the pump), so the module is never overrun.
 - **Idle gaps:** after every 2 bytes the pump waits for the shift register to empty (TC interrupt) and sends one idle
   frame by clearing and setting TE (RM0038 27.3.2), so no more than two characters follow each other closely.
-- **STREAM** (request 0x19, `first(2) count(2) size(1)`): the bytes staged by READ (up to 8192) are sent as consecutive
+- **STREAM** (request 0x1B, `first(2) count(2) size(1)`): the bytes staged by READ (up to 8192) are sent as consecutive
   pieces `B5 5B 83 idx(2) len data crc16(2)` without a request per piece; the main loop queues the next piece when the
   transmit queue has room. Any other request ends a stream and drops what is still queued of it.
-- **LINK** (request 0x18, `pace stop trim [gap]`): pace, 1 or 2 stop bits, a BRR trim and the gap can be set at run
+- **LINK** (request 0x1A, `pace stop trim [gap]`): pace, 1 or 2 stop bits, a BRR trim and the gap can be set at run
   time, in RAM only (back to the defaults when the page Ld is entered again, and at every start). Used to measure the
   module; the app uses it only to send slower when pieces get lost.
 
@@ -188,13 +192,38 @@ bytes/s and a stream at pace 13 loses pieces (the app then lowers the pace with 
 `MinConnectionInterval=6` and `MaxConnectionInterval=6` in the `[LE]` section of `/etc/bluetooth/main.conf`.
 
 Older apps are not affected: CHUNK, LIST and the rest answer as before, only paced. Firmware without CF-08 answers the
-types 0x18 / 0x19 with a 0x81 answer, status 3, and the app falls back to CHUNKs.
+types 0x1A / 0x1B with a 0x81 answer, status 3, and the app falls back to CHUNKs.
 
 `test_bft_fast.py`: STREAM argument checks (nothing staged, size 0 / 233, first beyond the end, short payload, count cut
 at the end), a stream with the page's defaults (complete, in order, equal to the file, 1100 .. 1300 bytes/s, at most
 143 bytes in any 100 ms), pace 12 (complete, at most 132 bytes in any 100 ms), LINK stop bits and trim applied to USART2
 only after the answer has left and restored by trim 0, out-of-range LINK refused, idle gaps 1 / 2 / 4 (complete, 864 /
 1156 / 1197 bytes/s), a LIST during a stream ends it, the data EEPROM and the card unchanged.
+
+### CF-09 Go straight to a SETUP page over Bluetooth (ble/setgoto.s, hooks in ble/commands.s, ble/bft.s, ble/bftsd.s)
+
+Over Bluetooth an app can only press keys. The SETUP pages are a loop of up to 40 pages with the page Ld in the middle,
+and on Ld every received byte belongs to the file transfer (ble/bft.s), so a SETUP key frame from the app is not seen
+there: an app could not reach the pages after Ld (rEL, tc, dSP, bH, LP, Pt, CL, Lt, Lo, HI, tr), nor take the meter from a
+page before Ld back to the normal display.
+
+- **Key frame code 0xC0 + item** (`F4 'C' x 'C' x`, item 0 = the normal display .. 40): echoed like every key frame;
+  the meter then steps the menu with the SETUP key's own routine (`fn_08015410`) until the item is shown, inside one
+  call, so the pages on the way are not displayed and Ld is not entered on the way. One beep and a redraw, as a SETUP
+  press; the page-text frame (CF-07) reports the new page.
+- **Card request 0x1C SETPAGE** `item(1)` on the page Ld (the key frames do not arrive there): the same jump, answered
+  with status 0 and field = the page shown afterwards (0x22 for a wrong payload).
+- Refused like the SETUP key (double beep, nothing changes): the power-on key window, logging, the MEM view,
+  calibration mode; also an item the present function and state do not have (the menu came round to its start) and
+  codes above 0xE8. An edit in progress ends without saving, as with the SETUP key.
+- Older firmware passes the codes 0xC0 .. 0xE8 to the key routine, which knows none of them; the app sends them only to
+  C-1.08 and later and steps with the SETUP key otherwise.
+
+`test_setup_goto.py`: for the dial positions V, mV / TEMP, Ω and Hz the order is learned with the SETUP key, then every
+page (but Ld) is reached from the normal display and left back to it, each with one frame (echo, `set_item`, an FA
+frame naming the page); Ld is reached, key frames do nothing there, SETPAGE refuses a wrong payload and item 41 and
+takes the meter from Ld back to the normal display (status frames again); tc outside TEMP and code 0xE9 change nothing;
+the SETUP key and a remote MODE key still work; the data EEPROM is unchanged by the jumps.
 
 ## Emulator fixes (emulator/app.py, emulator/ui/server.py, emulator/API.md)
 
@@ -228,22 +257,24 @@ only after the answer has left and restored by trim 0, out-of-range LINK refused
 Toolchain: GNU binutils 2.46.0.20260210 (as zombu4's CI), unicorn 2.1.4 / capstone 5.0.9 for the emulator. The untouched
 v1.0.4 tree (0319609) rebuilds byte-identical to zombu4's v1.0.4 release (`3fc07e80…2cdd`), so the toolchain matches.
 
-| Check | Custom C-1.07 | v1.0.2 unmodified |
+| Check | Custom C-1.08 | v1.0.2 unmodified |
 |---|---|---|
 | `make check-ci` (check_image, check_hy, check_gpio) | PASS | PASS |
 | Image vs zombu4's release | (custom) | byte-identical |
-| The whole emulator suite, 36 scripts (zombu4's, incl. `test_bft_files`, `test_bft_settings`, `test_calbin_ident` of v1.0.5 / v1.0.6, plus this fork's) | all pass | zombu4's: his CI |
-| `test_bft_fast.py` (CF-08: STREAM, LINK, pacing, idle gaps, a request ends a stream) | all pass | no STREAM / LINK (0x81 status 3) |
-| CF-08 on a real 121GW: 170000-byte card file by the Linux app | 149 s, 1138 bytes/s, equal, no damaged answer | C-1.06: 15.5 min, 184 bytes/s |
+| The whole emulator suite, 40 scripts (zombu4's, incl. `test_bft_files`, `test_bft_settings`, `test_calbin_ident` of v1.0.5 / v1.0.6 and `test_sd_capacity`, `test_sd_slow`, `test_sd_clock` of v1.0.8 .. v1.1.2, plus this fork's) | all pass | zombu4's: his CI |
+| `test_bft_fast.py` (CF-08: STREAM, LINK, pacing, idle gaps, a request ends a stream; requests 0x1A / 0x1B since C-1.08) | all pass | no STREAM / LINK (0x81 status 3) |
+| `test_setup_goto.py` (CF-09: every SETUP page of dials V, mV, Ω, Hz reached and left with one frame, Ld left by SETPAGE, refusals) | all pass | no jump (the codes reach the key routine) |
+| CF-08 on a real 121GW: 170000-byte card file by the Linux app | C-1.08: 149 s, 1144 bytes/s, equal, no damaged answer (C-1.07: 1138 bytes/s) | C-1.06: 15.5 min, 184 bytes/s |
+| CF-09 on a real 121GW: normal → dSP → tr → normal → In → normal, one frame each | every page reached, 0.4–0.6 s per jump | n/a |
 | `test_custom_fixes.py` (CF-01 keys / switch-on / PEAK, CF-02, CF-03, 26 checks) | all pass | 14 fail (the bugs are still there) |
 | `test_custom_fattime.py` (`get_fattime` by direct execution, 14 calendar inputs, CF-04) | all pass | 6 fail |
 | `test_custom_dcv_noise.py` (CF-05: noise at 60 / 120 counts, a 1 V -> 3 V step under noise) | all pass | the 2 noise checks fail (1.95 x, 2.50 x) |
 | `test_clock_frame.py` (set-clock frame 0xF8: checksum, echo, clock and SETUP pages, every frame applied (IMP-31), CF-06 four out-of-calendar frames) | all pass | the 4 CF-06 checks fail: the clock takes the values |
 | `test_custom_subtext.py` (CF-07: every SETUP page of dials 2..8 sent as on the LCD, status frames intact, item 0 once then quiet, nothing on Ld, an edit on bt) | all pass | no FA frames at all |
 | `test_custom_server.py` (emulator server / command checks, E-01..E-05) | all pass | n/a |
-| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.07`, mode / page / HOLD / REL unchanged | `F-1.02` |
+| Version request (IMP-30) through the [Linux app](https://github.com/bigtimer-dev/121gw-linux)'s parser | answer `C-1.08`, mode / page / HOLD / REL unchanged | `F-1.02` |
 | Same request sent to C-0.96 (older firmware) | echoed, no answer, nothing changed | n/a |
-| Power-on version (sub display) | `C-1.07` | `F-1.02` |
+| Power-on version (sub display) | `C-1.08` | `F-1.02` |
 | SETUP page text (FA) decoded by the Linux app (`gw121/setup_pages.py`) on dials 2 and 5 | every page named, value as on the LCD | n/a |
 
 Run them from the repository root with Python 3, `unicorn` and `capstone` (as the emulator), after a build
@@ -254,7 +285,7 @@ The emulator runs the real image instruction by instruction with modelled periph
 settling, real key bounce, the battery, the LCD glass and the real SD cards are models or absent. Run the checks of
 `HARDWARE_TEST.md` and the first checks of the main `README.md` on the meter.
 
-SHA-256 of the custom fast image C-1.07: `c1b3588e98c32ccd19675aaca569b2967cfdc8acb5c0402a97a4ab46164264c2` (172968 bytes).
-Earlier: C-1.06 (tag `custom-c1.06`) `1aa765f17544def57fd9b08f9c6250c2088d60860ec574568e787bd2263d9a12` (172168 bytes), C-1.04 (tag `custom-c1.04`) `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes), C-1.03 (tag `custom-c1.03`) `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes), C-1.02 (tag `custom-c1.02`) `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes),
+SHA-256 of the custom fast image C-1.08: `701ea49f99c5e66fe6b7afe6ea2ed633ce4b6eabc6e4fa9a147671b8169f4f7c` (174360 bytes).
+Earlier: C-1.07 (tag `custom-c1.07`) `c1b3588e98c32ccd19675aaca569b2967cfdc8acb5c0402a97a4ab46164264c2` (172968 bytes), C-1.06 (tag `custom-c1.06`) `1aa765f17544def57fd9b08f9c6250c2088d60860ec574568e787bd2263d9a12` (172168 bytes), C-1.04 (tag `custom-c1.04`) `2e9e4c902b58d4987feb6ea4ed9acd8aa71968b22967c22fc6439cbc44c8729c` (170000 bytes), C-1.03 (tag `custom-c1.03`) `86bb99b47208d440655478337a6824ffe158a8d1be5875455884f61111e3b4df` (156080 bytes), C-1.02 (tag `custom-c1.02`) `f7ead63cb1547907181284a2d59a3b110eb02b591cc4386cd16bab87058f8a00` (155712 bytes),
 C-0.96 (tag `custom-c0.96`) `6f090b5d8d00b039aa2de4ad1338eede998c86d1d3d32a8ea88a0fdec3840497` (152880 bytes),
 C-0.94 (tag `custom-c0.94`) `355c6ff0485987bd781f943a971da6e311018afdea8976f156ccc34cf2842580` (148228 bytes).
